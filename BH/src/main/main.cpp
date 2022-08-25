@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.0    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |
+|        #####   ##  ##         |                            | Version 1.1    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: main.cpp                                                         |
 | Info: Source code of BH                                                     |
@@ -25,14 +25,15 @@
 | along with BH.  If not, see <http://www.gnu.org/licenses/>.                 |
 \*---------------------------------------------------------------------------*/
 
- /*!
- \file
- \brief Barnes-Hut method for 2D vortex particles
- \author Марчевский Илья Константинович
- \author Рятина Евгения Павловна
- \version 1.0
- \date 05 августа 2021 г.
- */
+/*!
+\file
+\brief Barnes-Hut method for 2D vortex particles
+\author Марчевский Илья Константинович
+\author Рятина Евгения Павловна
+\author Колганова Александра Олеговна
+\version 1.1
+\date 24 августа 2022 г.
+*/
 
 #include <algorithm>
 #include <fstream> 
@@ -53,7 +54,6 @@ using std::ofstream;
 
 using namespace BH;
 
-const double PI = 3.1415926535897932384626;
 
 void CalcVortexVelo();
 void SolveLinearSystem();
@@ -88,6 +88,7 @@ void CalcVortexVelo()
 	{
 		for (int j = 0; j < 2; ++j)
 			infile >> wake[i].r()[j];
+		
 		infile >> wake[i].g();
 	} //for i
 
@@ -115,8 +116,8 @@ void CalcVortexVelo()
 		////// 
 
 		//double timeStartBH, timeStopBH;
-
 		BH.InfluenceComputation(velo, 0, timing[2], timing[3]);
+
 
 		runtime += omp_get_wtime();
 		if (minruntime > runtime)
@@ -299,7 +300,7 @@ void SolveLinearSystem()
 	double R = 0.0;
 	t1 = omp_get_wtime();
 	//BiCGStab(BH, gam, R, rhs, len, tau, n, 0);
-	GMRES(BH, gam, R, rhs, len, tau, n);
+	//GMRES(BH, gam, R, rhs, len, tau, n);
 	//GMRESfile(BH, gam, R, rhs, len, tau, 2 * n);
 	t2 = omp_get_wtime();
 

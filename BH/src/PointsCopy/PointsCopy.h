@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.0    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |
+|        #####   ##  ##         |                            | Version 1.1    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: PointsCopy.h                                                     |
 | Info: Source code of BH                                                     |
@@ -30,8 +30,9 @@
 \brief Заголовок вспомогательного класса
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 24 августа 2022 г.
 */
 
 
@@ -39,6 +40,8 @@
 #define POINTSCOPY_H_
 
 #include "Vortex2D.h"
+
+#include "omp.h"
 
 namespace BH
 {
@@ -63,6 +66,13 @@ namespace BH
 		PointsCopy(const Vortex2D& vtx_) :
 			Vortex2D(vtx_), veloCopy({ 0.0, 0.0 }), veloCopyLin({ 0.0, 0.0 })
 		{};
+
+		PointsCopy() :
+			Vortex2D({ 0.0, 0.0 }, 0.0) {};
+
+		PointsCopy(const Point2D& r) :
+			Vortex2D(r, 0.0) {};
+
 		~PointsCopy() {};
 	};
 

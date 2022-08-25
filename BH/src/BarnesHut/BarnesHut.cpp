@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.0    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |
+|        #####   ##  ##         |                            | Version 1.1    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: BarnesHut.cpp                                                    |
 | Info: Source code of BH                                                     |
@@ -30,8 +30,9 @@
 \brief Основные операции метода Барнса-Хата
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 24 августа 2022 г.
 */
 
 #include <fstream>
@@ -43,7 +44,7 @@
 namespace BH
 {
 
-	/// Конструктор	
+	/// Конструктор	для решения интегрального уравнения
 	BarnesHut::BarnesHut(const std::vector<Vortex2D>& points, const std::vector<Point2D>& panPos)
 	{
 		int n = (int)points.size();
@@ -107,34 +108,48 @@ namespace BH
 	}//BarnesHut(...)
 
 
+	//Конструктор для вычисления скоростей частиц
 	BarnesHut::BarnesHut(const std::vector<Vortex2D>& points)
 	{
 		pointsCopy.reserve(points.size());
-
 		for (int i = 0; i < (int)points.size(); ++i)
 		{
 			pointsCopy.emplace_back(points[i]);
 		}
+
+		
 	}//BarnesHut(...)
 
+
+	//Построение дерева
 	void BarnesHut::BuildTree(double& time)
 	{
-		tree.reset(new Tree(pointsCopy));
-
-		tree->makeTree(pointsCopy);
-
-		tree->BigTree = tree.get();
-
-		omp_set_nested(1);
+		tree = std::make_unique<MortonTree>(pointsCopy);
 
 		double t1 = omp_get_wtime();
 
-		tree->CreateTree();
-		tree->PushbackLowTrees();
+		//auto tA = -omp_get_wtime();
+		tree->makeRootMortonTree();
+		//tA += omp_get_wtime();
+
+		//auto tB = -omp_get_wtime();
+		tree->buildMortonInternalTree();
+		//tB += omp_get_wtime();
+		
+		//auto tC = -omp_get_wtime();
+		tree->buildMortonParticlesTree();
+		//tC += omp_get_wtime();
+		
+		//auto tD = -omp_get_wtime();
+		//tree->fillMortonLowCells();
+		tree->fillMortonLowCellsA();
+		//tD += omp_get_wtime();
 
 		double t2 = omp_get_wtime();
 		//std::cout << "CreateTree time " << t2 - t1 << std::endl;
 		time += t2 - t1;
+
+		//std::cout << tA << " " << tB << " " << tC << " " << tD << std::endl;
 
 	}
 
@@ -156,56 +171,61 @@ namespace BH
 	// Обнуление временной статистики
 	void BarnesHut::ClearTimestat()
 	{
-		tCoeffStart = 0.0;
-		tCoeffFinish = 0.0;
-		tExactStart = 0.0;
-		tExactFinish = 0.0;
-		tTreeParamsStart = 0.0;
-		tTreeParamsFinish = 0.0;
-		tOtherStart = 0.0;
-		tOtherFinish = 0.0;
+		
 	}
 
 	/// Расчет влияния точек result самих на себя
 	void BarnesHut::InfluenceComputation(std::vector<Point2D>& result, int type, double& timeParams, double& timeInfl)
 	{
 		ClearTimestat();
-		tTreeParamsStart += omp_get_wtime();
-		tree->CalculateTreeParams();
-		tTreeParamsFinish += omp_get_wtime();
+		double tTreeParamsStart = omp_get_wtime();
+	
+		//omp_set_nested(1);
+		omp_set_max_active_levels(maxLevelOmp + 1);
+
+		tree->calculateMortonTreeParams();
+		double tTreeParamsFinish = omp_get_wtime();
 
 		timeParams += tTreeParamsFinish - tTreeParamsStart;
+		
 		//std::cout << "CalculateTreeParams() = " << tTreeParamsFinish - tTreeParamsStart << std::endl;
 
 		double tInflStart = omp_get_wtime();
+
+
 #ifndef calcOp
 #pragma omp parallel for schedule(dynamic, 10)
 #endif
-		for (int i = 0; i < (int)tree->lowTrees.size(); ++i)
+		for (int i = 0; i < (int)tree->mortonLowCells.size(); ++i)
 		{
-			auto& lowTree = tree->lowTrees[i];
+			auto& lci = tree->mortonLowCells[i];
 
-			lowTree->ClearCoeff();
-			tree->CalcLocalCoeffToLowLevel(lowTree);
+			auto& lowCell = tree->mortonTree[lci];
+			lowCell.E.toZero({ 0.0, 0.0 });;
+
+			//tree->CalcLocalCoeffToLowLevel(lowTree);
+			tree->calcLocalCoeffToLowLevel(lci, 0, true);
 
 			switch (type)
 			{
-			case 0:
-				lowTree->CalcConvVeloByBiotSavart();
+			case 0:				
+				tree->calcVeloBiotSavart(lci);
 				break;
 			case 1:
-				lowTree->CalcInfluenceFromPanels();
+			//	lowTree->CalcInfluenceFromPanels();
 				break;
 			case 2:
-				lowTree->CalcInfluenceFromPanelsToPoints();
+			//	lowTree->CalcInfluenceFromPanelsToPoints();
 				break;
 			default:
 				break;
 			}
-			lowTree->CalcInfluenceFromVortexFarCells();
+						
+			tree->calcVeloTaylorExpansion(lci);
 		}
-		double tInflFinish = omp_get_wtime();
-		timeInfl += tInflFinish - tInflStart;
+
+		double tInflStop = omp_get_wtime();
+		timeInfl = tInflStop - tInflStart;
 
 		int n = (int)pointsCopy.size();
 
@@ -216,9 +236,12 @@ namespace BH
 #ifdef linScheme
 			result[i + n] = pointsCopy[i].veloCopyLin;
 #endif
-		}
-	}
+		}//for i
 
+	}//InfluenceComputation(...)
+
+
+/*
 	void BarnesHut::IterativeInfluenceComputation(std::vector<Point2D>& result, std::vector<double>& newGam, int type)
 	{
 		tOtherStart += omp_get_wtime();
@@ -272,7 +295,7 @@ namespace BH
 #endif
 		}
 	}
-
+*/
 
 }//namespace BH
 

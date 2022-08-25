@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.0    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |
+|        #####   ##  ##         |                            | Version 1.1    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Methods.h                                                        |
 | Info: Source code of BH                                                     |
@@ -30,8 +30,9 @@
 \brief Процедуры итерационных решателей
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 24 августа 2022 г.
 */
 
 #include <iostream>
@@ -136,6 +137,7 @@ namespace BH
 		return res;
 	}
 
+	/*
 	void BiCGStab(BarnesHut& BH, std::vector<double>& X, double R, std::vector<double>& rhs, std::vector<double>& len, std::vector<Point2D>& tau, int n, int type)
 	{
 		std::vector<Point2D> AX(n);
@@ -200,6 +202,7 @@ namespace BH
 		std::cout << "BiCGStab: " << it << std::endl;
 
 	}
+	*/
 
 	bool IterRot(const std::vector<std::vector<double>>& H, const std::vector<double>& rhs, double& gs, double& c, double& s, int m, int n)
 	{
@@ -342,6 +345,7 @@ namespace BH
 	}
 
 
+	/*
 	void GMRES(BarnesHut& BH, std::vector <double>& X, double R, std::vector<double>& rhs, std::vector<double>& len, std::vector<Point2D>& tau, int n, int type = 1)
 	{
 		double t1, t2;
@@ -502,6 +506,7 @@ namespace BH
 
 		std::cout << (t2 - t1) - (BH.tFin - BH.tStart) << std::endl;
 	}
+	*/
 
 	void SolMfile(std::vector<double>& res, const std::vector<std::vector<double>>& invM)
 	{
@@ -517,6 +522,7 @@ namespace BH
 		res = newres;
 	}
 
+	/*
 	void GMRESfile(BarnesHut& BH, std::vector <double>& X, double R, std::vector<double>& rhs, std::vector<double>& len, std::vector<Point2D>& tau, int n, int type = 1)
 	{
 		std::vector<std::vector<double>> invM(n + 1);
@@ -694,8 +700,10 @@ namespace BH
 
 		std::cout << (t2 - t1) - (BH.tFin - BH.tStart) << std::endl;
 	}
+	*/
 
 
+	/*
 	void Gauss(BarnesHut& BH, std::vector <double>& X, double R, std::vector<double>& rhs, const std::vector<PointsCopy>& pnt)
 	{
 		int n = (int)pnt.size();
@@ -757,6 +765,7 @@ namespace BH
 			X[i] = x[i];
 		R = x[2 * n];
 	}
+	*/
 
 }//namespace BH
 

@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.0    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |
+|        #####   ##  ##         |                            | Version 1.1    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: BarnesHut.h                                                      |
 | Info: Source code of BH                                                     |
@@ -30,8 +30,9 @@
 \brief Заголовок основного класса BarnesHut
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 24 августа 2022 г.
 */
 
 
@@ -48,13 +49,11 @@ namespace BH
 	{
 	public:
 
-		double tTreeParamsStart, tTreeParamsFinish, tCoeffStart, tCoeffFinish, tExactStart, tExactFinish, tOtherStart, tOtherFinish;
-
 		double tStart, tFin;
 		std::vector<PointsCopy> pointsCopy;
-
+		
 		/// умный yказатель на дерево 
-		mutable std::unique_ptr<Tree> tree;
+		mutable std::unique_ptr<MortonTree> tree;
 
 		/// Конструктор	
 		///
@@ -83,7 +82,8 @@ namespace BH
 		// 0 - Био --- Савар (по умолчанию), схема точка-точка
 		// 1 - Схема панель-панель
 		// 2 - Схема панель-точка
-		void IterativeInfluenceComputation(std::vector<Point2D>& result, std::vector<double>& newGam, int type = 0);
+		
+		//void IterativeInfluenceComputation(std::vector<Point2D>& result, std::vector<double>& newGam, int type = 0);
 
 		/// Обновление циркуляций вихревых элементов (для решения СЛАУ)
 		void UpdateGams(std::vector<double>& newGam);

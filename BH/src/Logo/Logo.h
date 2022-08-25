@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.0    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |
+|        #####   ##  ##         |                            | Version 1.1    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Logo.h                                                           |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,9 @@
 \brief Логотип
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 24 августа 2022 г.
 */
 
 #ifndef LOGO_H_
@@ -49,13 +50,13 @@ namespace BH
 	{
 		str <<
 			"/*---------------------------------*- BH -*------------------*---------------*\\" << '\n' << \
-			"|        #####   ##  ##         |                            | Version 1.0    |" << '\n' << \
-			"|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |" << '\n' << \
+			"|        #####   ##  ##         |                            | Version 1.1    |" << '\n' << \
+			"|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |" << '\n' << \
 			"|        #####   ######         |  for 2D vortex particles   *----------------*" << '\n' << \
 			"|        ##  ##  ##  ##         |  Open Source Code                           |" << '\n' << \
 			"|        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |" << '\n' << \
 			"|                                                                             |" << '\n' << \
-			"| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |" << '\n' << \
+			"| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |" << '\n' << \
 			"\\*---------------------------------------------------------------------------*/" << '\n';
 	}
 
@@ -74,19 +75,21 @@ namespace BH
 	void PrintConfiguration(int nbodies)
 	{
 		std::cout << std::endl;
-		std::cout << "                     Configuration for task \"" << task << "\"" << std::endl;
+		std::cout << "                     Configuration for task \"" << task.c_str() << "\"" << std::endl;
 		std::cout << "------------------------------------------------------------------------" << std::endl;
 		std::cout << "Number of bodies:               " << nbodies << " (eps = " << eps << ")" << std::endl;
-		std::cout << "Multipoles:                     " << "mon";
-		if (order >= 1)
-			std::cout << ", dip";
-		if (order >= 2)
-			std::cout << ", qua";
-		if (order >= 3)
-			std::cout << ", oct";
-		if (order >= 4)
-			std::cout << ", hex";
-		std::cout << std::endl;
+		std::cout << "Multipoles:                     " << "up to " << order << "-th moment" << std::endl;
+
+		//std::cout << "Multipoles:                     " << "mon";
+		//if (order >= 1)
+		//	std::cout << ", dip";
+		//if (order >= 2)
+		//	std::cout << ", qua";
+		//if (order >= 3)
+		//	std::cout << ", oct";
+		//if (order >= 4)
+		//	std::cout << ", hex";
+		//std::cout << std::endl;
 		std::cout << "Theta in proximity criterion:   " << theta << std::endl;
 		std::cout << "Maximal tree level:             " << NumOfLevels << std::endl;
 /*

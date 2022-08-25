@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.0    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |
+|        #####   ##  ##         |                            | Version 1.1    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Tree.cpp                                                         |
 | Info: Source code of BH                                                     |
@@ -30,11 +30,13 @@
 \brief Основные операции работы с деревом
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 24 августа 2022 г.
 */
 
 #include <algorithm>
+#include <tuple>
 
 #include <omp.h>
 
@@ -42,495 +44,532 @@
 
 namespace BH
 {
-
-	const double PI = 3.1415926535897932384626;
-	const double IPI = 1.0 / PI;
-	const double IDPI = 0.5 / PI;
-
 	extern long long op;
 
-
-	///Построение корня дерева на основе заданных вихрей 
-	void Tree::makeTree(std::vector<PointsCopy>& points)
+	//Конструктор
+	MortonTree::MortonTree(std::vector<PointsCopy>& points)
+		: pointsCopy(points)
 	{
-		auto minmaxY = std::minmax_element(points.begin(), points.end(), [](const PointsCopy& a, const PointsCopy& b)
-			{
-				return a.r()[1] < b.r()[1];
-			});
-
-		iBottom = (minmaxY.first)->r()[1];
-		iTop = (minmaxY.second)->r()[1];
-
-		auto minmaxX = std::minmax_element(points.begin(), points.end(), [](const PointsCopy& a, const PointsCopy& b)
-			{
-				return a.r()[0] < b.r()[0];
-			});
-
-		iLeft = (minmaxX.first)->r()[0];
-		iRight = (minmaxX.second)->r()[0];
-
-		index.resize(points.size());
-		for (int i = 0; i < points.size(); ++i)
-			index[i] = i;
-
-		posCentre = { 0.5 * (iLeft + iRight), 0.5 * (iBottom + iTop) };
-
-		level = 0;
-		p = 0;
-
-		treePtr.resize((1 << (NumOfLevels + 1)) - 1);
-
-		for (auto& p : treePtr)
-			p.reset(new Tree(points));
-	}//makeTree(...)
+		mortonTree.resize(2 * points.size());
+		mortonCodes.resize(points.size());
+		mortonLowCells.reserve(points.size());
+		
+		mortonCodes_temp.resize(points.size());
+		s.resize(256 * omp_get_max_threads());
 
 
-	/// Построение структуры дерева 
-	void Tree::CreateTree()
+		//Вычисляем факториалы и биномиальные коэффиценты
+		iFact[0] = 1.0;
+		for (int i = 1; i <= order; ++i)
+			iFact[i] = iFact[i - 1] / i;
+		getBinom(0, 0) = 1.0;
+		for (int i = 1; i <= order; ++i) {
+			getBinom(i, 0) = 1.0;
+			getBinom(i, i) = 1.0;
+			for (int j = 1; j < i; ++j)
+				getBinom(i, j) = getBinom(i - 1, j - 1) + getBinom(i - 1, j);
+		}//for i
+	}//MortonTree(...)
+
+
+
+	//Поиск габаритного прямоугольника системы точек
+	std::pair<Point2D, Point2D> MortonTree::find_enclosing_rectangle_old(const std::vector<PointsCopy>& points)
 	{
-		auto lamx = [this](int i, int j)
+		double shared_minx = 1e+10, shared_maxx = -1e+10, shared_miny = 1e+10, shared_maxy = -1e+10;
+#pragma omp parallel 
 		{
-			return points[i].r()[0] < points[j].r()[0];
-		};
-
-		auto lamy = [this](int i, int j)
-		{
-			return points[i].r()[1] < points[j].r()[1];
-		};
-
-
-#pragma omp parallel default(none) shared(std::cout, lamx, lamy) num_threads(1) if(level <= maxLevelOmp)
-		{
-#pragma omp single
+			double minx = 1e+10, maxx = -1e+10, miny = 1e+10, maxy = -1e+10;
+#pragma omp for nowait
+			for (int ii = 0; ii < (int)points.size(); ++ii)
 			{
-				double w = iRight - iLeft;
-				double h = iTop - iBottom;
-
-				int k2 = 1 << (level + 1);
-
-				mChildren[0] = std::move(BigTree->treePtr[k2 + 2 * p - 1]);
-				mChildren[1] = std::move(BigTree->treePtr[k2 + 2 * p]);
-
-				if (w > h)
-				{
-					double midX = 0.5 * (iLeft + iRight);
-
-					mChildren[0]->iLeft = iLeft;
-					mChildren[0]->iRight = midX;
-					mChildren[0]->iBottom = iBottom;
-					mChildren[0]->iTop = iTop;
-
-					mChildren[1]->iLeft = midX;
-					mChildren[1]->iRight = iRight;
-					mChildren[1]->iBottom = iBottom;
-					mChildren[1]->iTop = iTop;
-
-					auto itp = std::partition(index.begin(), index.end(), [this, midX](int a) {return points[a].r()[0] < midX; });
-
-					mChildren[0]->index.insert(mChildren[0]->index.end(), index.begin(), itp);
-					mChildren[1]->index.insert(mChildren[1]->index.end(), itp, index.end());
-				} //if (w > h)
-				else
-				{
-					double midY = 0.5 * (iBottom + iTop);
-
-					mChildren[0]->iLeft = iLeft;
-					mChildren[0]->iRight = iRight;
-					mChildren[0]->iBottom = iBottom;
-					mChildren[0]->iTop = midY;
-
-					mChildren[1]->iLeft = iLeft;
-					mChildren[1]->iRight = iRight;
-					mChildren[1]->iBottom = midY;
-					mChildren[1]->iTop = iTop;
-
-					auto itp = std::partition(index.begin(), index.end(), [this, midY](int a) {return points[a].r()[1] < midY; });
-
-					mChildren[0]->index.insert(mChildren[0]->index.end(), index.begin(), itp);
-					mChildren[1]->index.insert(mChildren[1]->index.end(), itp, index.end());
-				}//else
-			}
-
-#pragma omp for 
-			for (int s = 0; s < 2; ++s)
+				const Point2D& r = points[ii].r();
+				minx = std::min(r[0], minx);
+				maxx = std::max(r[0], maxx);
+				miny = std::min(r[1], miny);				
+				maxy = std::max(r[1], maxy);
+			}//for ii
+#pragma omp critical 
 			{
-				auto& mC = *mChildren[s];
-
-				//обрезаем по вихрям
-				auto minmaxX = std::minmax_element(mC.index.begin(), mC.index.end(), lamx);
-
-				mC.iLeft = points[*(minmaxX.first)].r()[0];
-				mC.iRight = points[*(minmaxX.second)].r()[0];
-
-				auto minmaxY = std::minmax_element(mC.index.begin(), mC.index.end(), lamy);
-
-				mC.iBottom = points[*(minmaxY.first)].r()[1];
-				mC.iTop = points[*(minmaxY.second)].r()[1];
-
-				mC.level = level + 1;
-				mC.p = 2 * p + s;
-
-				mC.BigTree = BigTree;
-
-				mC.posCentre = { 0.5 * (mC.iLeft + mC.iRight), 0.5 * (mC.iBottom + mC.iTop) };
+				shared_minx = std::min(shared_minx, minx);
+				shared_maxx = std::max(shared_maxx, maxx);
+				shared_miny = std::min(shared_miny, miny);
+				shared_maxy = std::max(shared_maxy, maxy);
+			}//critical
+		}//parallel
+		
+		return { {shared_minx, shared_miny}, {shared_maxx, shared_maxy} };
+	}//find_enclosing_rectangle_old(...)
 
 
-				if ((mC.level < NumOfLevels) && (mC.index.size() > minNumOfVort) && \
-					(std::max(fabs(mC.iRight - mC.iLeft), fabs(mC.iTop - mC.iBottom)) > minDist))
-				{
-					mC.CreateTree();
-				}
-				else
-				{
-					mC.lowLevel = true;
-					mC.closeTrees.reserve(100);
-				}
-			}
-		}
-	}//CreateTree(...)
+/*
+//Поиск габаритного прямоугольника системы точек
+#pragma omp declare reduction(min : struct PointsCopy : \
+        omp_out.r()[0] = omp_in.r()[0] > omp_out.r()[0]  ? omp_out.r()[0] : omp_in.r()[0], \
+        omp_out.r()[1] = omp_in.r()[1] > omp_out.r()[1]  ? omp_out.r()[1] : omp_in.r()[1] ) \
+        initializer( omp_priv = Vortex2D{ { 1e+10, 1e+10 } , 0.0} )
 
+#pragma omp declare reduction(max : struct PointsCopy : \
+        omp_out.r()[0] = omp_in.r()[0] < omp_out.r()[0]  ? omp_out.r()[0] : omp_in.r()[0],  \
+        omp_out.r()[1] = omp_in.r()[1] < omp_out.r()[1]  ? omp_out.r()[1] : omp_in.r()[1] ) \
+        initializer( omp_priv = Vortex2D{ { -1e+10, -1e+10 } , 0.0} )
 
-	void Tree::PushbackLowTrees()
+	
+	std::pair<Point2D, Point2D> MortonTree::find_enclosing_rectangle(const std::vector<PointsCopy>& points)
 	{
-		if (!lowLevel)
-			for (int s = 0; s < 2; ++s)
-				mChildren[s]->PushbackLowTrees();
+		PointsCopy minp(Vortex2D{ { 1e+10, 1e+10 } , 0.0}), maxp(Vortex2D{ { -1e+10, -1e+10 } , 0.0 });
+				
+#pragma omp parallel for reduction(min:minp) reduction(max:maxp)
+		for (int i = 0; i < (int)points.size(); ++i) {
+			if (points[i].r()[0] < minp.r()[0]) minp.r()[0] = points[i].r()[0];
+			if (points[i].r()[1] < minp.r()[1]) minp.r()[1] = points[i].r()[1];
+			if (points[i].r()[0] > maxp.r()[0]) maxp.r()[0] = points[i].r()[0];
+			if (points[i].r()[1] > maxp.r()[1]) maxp.r()[1] = points[i].r()[1];
+		}//for i
+		return { minp.r(), maxp.r() };		
+	}//find_enclosing_rectangle(...)
+*/
+
+
+	//Построение корня дерева и задание его общих параметров
+	void MortonTree::makeRootMortonTree()
+	{
+		auto gabs = find_enclosing_rectangle_old(pointsCopy);
+
+		double iLeft = gabs.first[0];
+		double iBottom = gabs.first[1];
+		
+		double iRight = gabs.second[0];
+		double iTop = gabs.second[1];
+
+		Point2D posCentre = { 0.5 * (iLeft + iRight), 0.5 * (iBottom + iTop) };
+
+		double quadSide = std::max(iRight - iLeft, iTop - iBottom);
+		iQuadSideVar = 1.0 / (quadSide * (1.0 + 1.0 / ((1 << codeLength) - 1)));
+		lowLeft = posCentre - 0.5*quadSide*Point2D{ 1.0, 1.0 };
+				
+		//iQuadSideVar = 1.0;
+		//lowLeft = Point2D{ 0.0, 0.0 };
+				
+#pragma omp parallel for schedule(dynamic, 1000)
+		for (int i = 0; i < (int)pointsCopy.size(); ++i)
+		{
+			Point2D locR = (pointsCopy[i].r() - lowLeft) * iQuadSideVar;
+			unsigned int mortonCode = morton2D(locR);
+				
+			auto& mc = mortonCodes[i];
+			mc.key = mortonCode;
+			mc.originNumber = i;
+			mc.r = pointsCopy[i].r();
+			mc.g = pointsCopy[i].g();
+		}//for i
+
+		//RSort_Node3(mortonCodes.data(), mortonCodes_temp.data(), (int)pointsCopy.size());				
+		RSort_Parallel(mortonCodes.data(), mortonCodes_temp.data(), (int)pointsCopy.size(), s.data());
+
+		mortonTree[0].range = { 0, (int)pointsCopy.size() - 1 };
+		mortonTree[0].particle = false;
+	}//makeRootMortonTree()
+
+
+	//Функция вычисления длины общей части префиксов двух(а значит - и диапазона) частиц
+	int MortonTree::delta(int i, int j)
+	{
+		if ((j < 0) || (j > pointsCopy.size() - 1))
+			return -1;
+
+		if (i > j)
+			std::swap(i, j);
+
+		//if ((i < 0) || (j > n-1))
+		//    exit(111);
+
+		const unsigned int& ki = mortonCodes[i].key;
+		const unsigned int& kj = mortonCodes[j].key;
+		
+		//Поиск номера самого старшего ненулевого бита в числе c 
+		int count = 0;
+		for (unsigned int c = (ki ^ kj); c; c >>= 1, ++count);
+
+		if ((!count) && (i != j))
+		{
+			int addCount = 0;
+			//единички к номерам i и j добавлены для совместимости с Wolfram Mathematica, 
+			//для кода они не важны, но дерево без них почти наверняка построится по-другому        
+			for (unsigned int add = ((i + 1) ^ (j + 1)); add; add >>= 1, ++addCount);
+			return 2 * codeLength + (2 * codeLength - addCount);
+		}//if ((!count) && (i != j))
+
+		return (2 * codeLength - count);
+	}//delta(...)
+
+
+	//Функция вычисления длины общей части префиксов всех частиц в конкретной ячейке
+	int MortonTree::prefixLength(int cell)
+	{
+		const auto& range = mortonTree[cell].range;
+		return std::min(delta(range[0], range[1]), 2 * codeLength);
+	}//prefixLength(...)
+
+	
+	//Функция вычисления общего префикса двух частиц
+	std::pair<unsigned int, int> MortonTree::prefix(int cell)
+	{
+		int length = prefixLength(cell);
+		unsigned int el = mortonCodes[mortonTree[cell].range[0]].key;
+		return { el >> (2 * codeLength - length), length };
+	}//prefix(...)
+
+
+	//Функция вычисления геометрических параметров внутренней ячейки дерева
+	void MortonTree::setCellGeometry(int cell)
+	{
+		int prLength;
+		unsigned int pr;
+		std::tie<unsigned int, int>(pr, prLength) = prefix(cell);
+
+		Point2D sz = { 1.0 / (double)(1 << ceilhalf(prLength)), 1.0 / (1 << (prLength / 2)) };
+
+		Point2D pos = 0.5 * sz;
+
+		for (int i = 0; i < prLength; i += 2)
+			if (pr & (1 << (prLength - i - 1)))
+				pos[0] += 1.0 / (1 << (1 + i / 2));
+
+		for (int i = 1; i < prLength; i += 2)
+			if (pr & (1 << (prLength - i - 1)))
+				pos[1] += 1.0 / (1 << (1 + i / 2));
+
+		mortonTree[cell].centre = pos * (1.0 / iQuadSideVar) + lowLeft;
+		mortonTree[cell].size = sz * (1.0 / iQuadSideVar);
+		mortonTree[cell].level = prLength;
+
+		mortonTree[cell].leaf = (prLength >= NumOfLevels);
+	}//setCellGeometry(...)
+
+
+	//Функция построения i-й внутренней ячейки дерева
+	void MortonTree::buildInternalTreeCell(int i)
+	{
+		const int n = (int)pointsCopy.size();
+		int d = sign(delta(i, i + 1) - delta(i, i - 1));
+		int delta_min = delta(i, i - d);
+		
+		int Lmax = 2;
+		while (delta(i, i + Lmax * d) > delta_min)
+			Lmax *= 2;
+
+		int L = 0;
+		for (int t = (Lmax >> 1); t >= 1; t >>= 1)		
+			if (delta(i, i + (L + t) * d) > delta_min)
+				L += t;
+		
+		int j = i + L * d;
+		int delta_node = delta(i, j);
+		int s = 0;
+		for (int p = 1, t = ceilhalf(L); L > (1 << (p - 1)); ++p, t = ceilpow2(L, p))
+		{
+			int dl = delta(i, i + (s + t) * d);
+			if (dl > delta_node)
+				s += t;
+		}//for p
+		int gamma = i + s * d + std::min(d, 0);
+
+		auto min_max = std::minmax(i, j);
+
+		const int& left = gamma;
+		const int& right = gamma + 1;
+
+		treeCellT& treeCell = mortonTree[i];
+
+		// Левый потомок - лист или внутренний узел
+		bool ifLeftParticle = (min_max.first == gamma);
+		treeCell.child[0] = ifLeftParticle ? n + left : left;
+		mortonTree[treeCell.child[0]].range = { min_max.first, gamma };
+		mortonTree[treeCell.child[0]].particle = ifLeftParticle;
+		mortonTree[treeCell.child[0]].parent = i;
+
+		// Правый потомок - лист или внутренний узел
+		bool ifRightParticle = (min_max.second == gamma + 1);
+		treeCell.child[1] = ifRightParticle ? n + right : right;
+		mortonTree[treeCell.child[1]].range = { gamma + 1, min_max.second };
+		mortonTree[treeCell.child[1]].particle = ifRightParticle;
+		mortonTree[treeCell.child[1]].parent = i;
+	}//buildInternalTreeCell(...)
+
+
+	//Построение внутренних ячеек дерева
+	void MortonTree::buildMortonInternalTree()
+	{
+		//auto t1 = -omp_get_wtime();
+#pragma omp parallel for schedule(dynamic, 1000)
+		for (int q = 0; q < pointsCopy.size() - 1; ++q)
+			buildInternalTreeCell(q);
+		//t1 += omp_get_wtime();
+
+		mortonTree[pointsCopy.size() - 1].leaf = false;
+		mortonTree[pointsCopy.size() - 1].particle = false;
+
+		//auto t2 = -omp_get_wtime();
+#pragma omp parallel for schedule(dynamic, 1000)
+		for (int q = 0; q < pointsCopy.size() - 1; ++q)
+			setCellGeometry(q);
+		//t2 += omp_get_wtime();
+
+		//std::cout << t1 << " " << t2 << std::endl;
+	}//buildMortonInternalTree()
+
+
+	//Построение верхушек дерева --- отдельных частиц
+	void MortonTree::buildMortonParticlesTree()
+	{
+#pragma omp parallel for		
+		for (int q = 0; q < pointsCopy.size(); ++q)
+		{
+			//auto& pt = pointsCopy[mortonCodes[q].originNumber];
+			auto& pt = mortonCodes[q];
+
+			auto& cell = mortonTree[pointsCopy.size() + q];
+			cell.centre = pt.r;
+
+			cell.leaf = true;
+			cell.size = { 0.0, 0.0 };
+		}//for q
+	}//buildMortonParticlesTree(...)
+
+
+	//Заполнение списка нижних вершин: 
+	//рекурсивный алгоритм, быстро работает в последовательном варианте		
+	void MortonTree::fillMortonLowCells(int cell)
+	{
+		//std::cout << "cell = " << cell << (mortonTree[cell].leaf ? " leaf" : "") << std::endl;
+		if (mortonTree[cell].leaf)
+			mortonLowCells.push_back(cell);
 		else
-			BigTree->lowTrees.push_back(this);
-
-	}//PushbackLowTrees()
-
-
-	/// Вычисление параметров дерева (циркуляций и центров завихренности)
-	void Tree::CalculateTreeParams()
-	{
-		if (!lowLevel)
 		{
-#pragma omp parallel default(none) num_threads(2) if(level <= maxLevelOmp)
-			{
+			fillMortonLowCells(mortonTree[cell].child[0]);
+			fillMortonLowCells(mortonTree[cell].child[1]);
+		}//else
+	}//fillMortonLowCells(...)
+
+
+	//Заполнение списка нижних вершин: 
+	//нерекурсивный алгоритм, хорошо распараллеливается, но неэффективен в последовательном варианте
+	void MortonTree::fillMortonLowCellsA()
+	{
+#pragma omp parallel
+		{
+			std::vector<int> good_matches_private;
+#pragma omp for nowait
+			for (int cell = 0; cell < mortonTree.size(); ++cell)			
+				if (!mortonTree[mortonTree[cell].parent].leaf && mortonTree[cell].leaf)				
+					good_matches_private.push_back(cell);				
+#pragma omp critical
+			mortonLowCells.insert(mortonLowCells.end(), good_matches_private.begin(), good_matches_private.end());
+		}//parallel
+	}//fillMortonLowCellsA()
+
+
+	/// Вычисление параметров дерева (циркуляций и высших моментов)
+	void MortonTree::calculateMortonTreeParams(int cell)
+	{
+		//if (cell < 0 || cell >= mortonTree.size())
+		//	std::cout << "cell error, cell = " << cell << std::endl;
+
+		auto& cl = mortonTree[cell];
+		//std::cout << "cell = " << cell << (mortonTree[cell].particle ? " particle" : "") << std::endl;
+		if (!cl.particle)
+		{
+#pragma omp parallel default(none) shared(cl) num_threads(2) 
+			{				
 #pragma omp for 
 				for (int s = 0; s < 2; ++s)
-					mChildren[s]->CalculateTreeParams();
+					calculateMortonTreeParams(cl.child[s]);
 
 #pragma omp single
 				{
-					mon = 0.0;
-					dip.toZero();
-					qua.toZero();
-					oct.toZero();
-					hex.toZero();
+					cl.mom.toZero({0.0, 0.0});
 
-					Point2D h;
+					numvector<Point2D, order> h;
 					for (int s = 0; s < 2; ++s)
 					{
-						const double& g = mChildren[s]->mon;
-						mon += g;
-
-						h = (mChildren[s]->posCentre) - (this->posCentre);
-
-						const Point2D& d = mChildren[s]->dip;
-
-						Point2D mh = h * g;
-						dip += d + mh;
-#ifdef calcOp
-						op += 2;
-#endif
-						if (order >= 2)
+						auto& chld = mortonTree[cl.child[s]];
+						const Point2D& g = chld.mom[0];
+						cl.mom[0] += g;						
+						h[0] = (chld.centre) - (cl.centre);
+						for (int i = 1; i < order; ++i)
 						{
-							const Point2D& q = mChildren[s]->qua;
-							Point2D dh = multz(d, h);
-							mh = multz(mh, h);
-							qua += q + 2.0 * dh + mh;
+							h[i] = multz(h[i - 1], h[0]);
 #ifdef calcOp
-							op += 2;
+							op += 4;
 #endif
-							if (order >= 3)
+						}//for i
+
+						for (int p = 1; p <= order; ++p) {
+							Point2D shiftMom = chld.mom[p];
+							for (int k = 1; k <= p; ++k)
 							{
-								const Point2D& o = mChildren[s]->oct;
-
-								Point2D qh = multz(q, h);
-								dh = multz(dh, h);
-								mh = multz(mh, h);
-								oct += o + 3.0 * qh + 3.0 * dh + mh;
-#ifdef calcOp					
+								shiftMom += getBinom(p, k) * multz(chld.mom[p - k], h[k - 1]);
+#ifdef calcOp
 								op += 6;
-#endif					
-								if (order >= 4)
-								{
-									const Point2D& hh = mChildren[s]->hex;
-
-									Point2D oh = multz(o, h);
-									qh = multz(qh, h);
-									dh = multz(dh, h);
-									mh = multz(mh, h);
-
-									hex += hh + 4.0 * oh + 6.0 * qh + 4.0 * dh + mh;
-#ifdef calcOp						
-									op += 8;
 #endif
-								}//if (order >= 4)
-							}//if (order >= 3)
-						}//if (order >= 2)
-					}
-				}
-			}
-		}//if(!lowLevel)
+							}//for k
+							cl.mom[p] += shiftMom;
+						}//for m
+					}//for s
+				}//single
+			}//parallel
+		}//if(!particle)
 		else
 		{
 #ifdef pan
 			CalcPanelsParams();
 #else
-			CalcPointsParams();
+			//CalcPointsParams();
+			//C учетом того, что дерево строится до частиц --- только монопольный момент отличен от нуля
+			cl.mom[0][0] = mortonCodes[cl.range[0]].g; // { pointsCopy[mortonCodes[cl.range[0]].originNumber].g(), 0.0 };
+			cl.mom[0][1] = 0.0;
+			for (int p = 1; p <= order; ++p)
+				cl.mom[p].toZero();			
 #endif
 		}//else
 	}//CalculateTreeParams()
 
-	// Вычисление параметров нижней ячейки по набору панелей (для решения системы)
-	void Tree::CalcPanelsParams()
-	{
-		mon = 0.0;
-		dip.toZero();
-		qua.toZero();
-		oct.toZero();
-		hex.toZero();
 
-		double gDop, gLin;
-		Point2D h;
-		for (size_t i : index)
+	//Основная функция вычисления вихревого влияния
+	void MortonTree::influenceComputation(std::vector<Point2D>& result)
+	{
+#ifndef calcOp
+#pragma omp parallel for schedule(dynamic, 100)
+#endif
+		for (int i = 0; i < (int)mortonLowCells.size(); ++i)
 		{
-			const PointsCopy& itDop = points[i];
-			gDop = itDop.g();
-			gLin = itDop.gamLin;
+			auto& lowCell = mortonTree[mortonLowCells[i]];
+			lowCell.E.toZero({ 0.0, 0.0 });;
 
-			const double g = gDop;
-			mon += g;
+			//tree->CalcLocalCoeffToLowLevel(lowTree);
+			calcLocalCoeffToLowLevel(mortonLowCells[i], 0, true);
 
-			h = (itDop.r() - posCentre);
+			//switch (type)
+			//{
+			//case 0:
+				//lowTree->CalcConvVeloByBiotSavart();
+				calcVeloBiotSavart(mortonLowCells[i]);
+			//	break;
+			//case 1:
+			//	lowTree->CalcInfluenceFromPanels();
+			//	break;
+			//case 2:
+			//	lowTree->CalcInfluenceFromPanelsToPoints();
+			//	break;
+			//default:
+			//	break;
+			//}
 
-			const Point2D& d = itDop.dipP * gLin; ////
-			Point2D mh = h * g;
-			dip += d + mh;
-#ifdef calcOp
-			op += 2;
-#endif
-			if (order >= 2)
-			{
-				const Point2D& q = itDop.quaP * gDop;
-#ifdef calcOp
-				op += 2;
-#endif
-				Point2D dh = multz(d, h); ////
-				mh = multz(mh, h);
-				qua += q + dh + 0.5 * mh;
-#ifdef calcOp
-				op += 2;
-#endif
-				if (order >= 3)
-				{
-					Point2D qh = multz(q, h);
-					dh = multz(dh, h);		//// 
-					mh = multz(mh, h);
-					const Point2D& o = itDop.octP * gLin;
-
-					oct += o + 1.5 * qh + 0.75 * dh + 0.25 * mh;
-#ifdef calcOp					
-					op += 4;
-#endif				
-					if (order >= 4)
-					{
-						const Point2D& hh = itDop.hexP * gDop;
-#ifdef calcOp
-						op += 2;
-#endif
-						Point2D oh = multz(o, h); //// 
-						qh = multz(qh, h);
-						dh = multz(dh, h);		//// 
-						mh = multz(mh, h);
-
-						hex += hh + 2.0 * oh + 1.5 * qh + 0.5 * dh + 0.125 * mh;
-#ifdef calcOp						
-						op += 4;
-#endif
-					}//if (order >= 4)
-				}//if (order >= 3)
-			}//if (order >= 2)
+			//lowTree->CalcInfluenceFromVortexFarCells();
+			//calcVeloTaylorExpansion(mortonLowCells[i]);
 		}//for i
-	}//CalcPanelsParams()
 
-	// Вычисление параметров нижней ячейки по набору вихрей (для расчета скоростей)
-	void Tree::CalcPointsParams()
-	{
-		mon = 0.0;
-		dip.toZero();
-		qua.toZero();
-		oct.toZero();
-		hex.toZero();
+		int n = (int)pointsCopy.size();
 
-		double gDop;
-		Point2D dr;
-		for (size_t i : index)
+#pragma omp parallel for 
+		for (int i = 0; i < n; ++i)
 		{
-			const PointsCopy& itDop = points[i];
-			gDop = itDop.g();
-			mon += gDop;
-
-			dr = (itDop.r() - posCentre);
-			Point2D z1 = gDop * dr;
-			dip += z1;
-#ifdef calcOp
-			op += 2;
+			result[i] = pointsCopy[i].veloCopy;
+#ifdef linScheme
+			result[i + n] = pointsCopy[i].veloCopyLin;
 #endif
-			if (order >= 2)
-			{
-
-				Point2D z2 = multz(dr, z1);
-				qua += z2;
-#ifdef calcOp
-				op += 2;
-#endif
-				if (order >= 3)
-				{
-					Point2D z3 = multz(dr, z2);
-					oct += z3;
-#ifdef calcOp
-					op += 2;
-#endif
-					if (order >= 4)
-					{
-						Point2D z4 = multz(dr, z3);
-						hex += z4;
-#ifdef calcOp
-						op += 2;
-#endif
-					}
-				}//order 3
-			}//order 2
 		}//for i
-	}//CalcPointsParams()
+	}//influenceComputation(...)
 
-	void Tree::ClearCoeff()
-	{
-		E.toZero({ 0.0, 0.0 });
-	}
+
 
 	//Расчет коэффициентов разложения в ряд Тейлора внутри ячейки нижнего уровня
-	void Tree::CalcLocalCoeffToLowLevel(Tree* lowTree, bool calcCloseTrees)
+	void MortonTree::calcLocalCoeffToLowLevel(int lowCell, int fromWho, bool calcCloseTrees)
 	{
-		if (lowTree != this)
+		
+		auto& lt = mortonTree[lowCell];
+
+		if (lowCell != fromWho)
 		{
-			Tree& lt = *lowTree;
+			auto& wh = mortonTree[fromWho];
 
 			double h, h0;
-			h = fabs(this->iRight - this->iLeft) + fabs(this->iTop - this->iBottom);
-			h0 = fabs(lt.iRight - lt.iLeft) + fabs(lt.iTop - lt.iBottom);
+			h = wh.size[0] + wh.size[1];
+			h0 = lt.size[0] + lt.size[1];
 
-			Point2D& r0 = lt.posCentre;
-			Point2D& r1 = this->posCentre;
+			Point2D& r0 = lt.centre;
+			Point2D& r1 = wh.centre;
 
-			double crit = dist(r0, r1);
+			Point2D rr = r0 - r1;
+
+			double crit2 = rr.length2();
 #ifdef calcOp
 			op += 3;
 			op += 2;
 #endif
 			// если выполнен критерий дальности => считаем коэффициенты
-			if ((crit >= (h0 + h + 2.0 * eps) / theta))
+			if ((crit2 >= sqr((h0 + h + 2.0 * eps) / theta)))
 			{
 				Point2D  rr = r0 - r1;
+				rr *= 1.0 / rr.length2();
 
-				double inrm2 = 1.0 / rr.length2();
-
+				//double inrm2 = 1.0 / rr.length2();
 #ifdef calcOp
 				op += 3;
-#endif
-
-				Point2D cftr = inrm2 * rr;
-				lt.E[0] += mon * cftr;
-				Point2D thD = inrm2 * multz(cftr, rr);
-				lt.E[0] += multzA(thD, dip);
-
-#ifdef calcOp
-				op += 7;
-#endif
-
-				if (order >= 2)
+#endif			
+				
+				Point2D varTheta = /*inrm2 **/ rr;
+				for (int diag = 0; diag < order; ++diag)
 				{
-					Point2D thQ = (2.0 * inrm2) * multz(thD, rr);
-#ifdef calcOp
-					op += 3;
-#endif
-					lt.E[0] += 0.5 * multzA(thQ, qua);
+					for (int q = 0; q <= diag; ++q)
+						lt.E[q] += ((q % 2 ? -1.0 : 1.0) * iFact[diag - q]) * multzA(varTheta, wh.mom[diag - q]);
+					varTheta = ((diag + 1) /** inrm2*/) * multz(varTheta, rr);
+				}
+				lt.E[0] += iFact[order] * multzA(varTheta, wh.mom[order]);
 
-					lt.E[1] -= mon * thD;
-#ifdef calcOp
-					op += 2;
-#endif
-
-					if (order >= 3)
-					{
-						Point2D thO = (3.0 * inrm2) * multz(thQ, rr);
-						lt.E[0] += (1.0 / 6.0) * multzA(thO, oct);
-#ifdef calcOp
-						op += 5;
-#endif
-						lt.E[1] -= multzA(thQ, dip);
-						lt.E[2] += mon * thQ;
-#ifdef calcOp
-						op += 2;
-#endif
-
-						if (order >= 4)
-						{
-							Point2D thH = (4.0 * inrm2) * multz(thO, rr);
-							lt.E[0] += (1.0 / 24.0) * multzA(thH, hex);
-#ifdef calcOp
-							op += 5;
-#endif						
-							lt.E[1] -= 0.5 * multzA(thO, qua);
-							lt.E[2] += multzA(thO, dip);
-							lt.E[3] -= mon * thO;
-#ifdef calcOp
-							op += 2;
-#endif
-						}//if order >= 4
-					} //if order >= 3
-				}//if order >= 2
-			}//if crit
+			}//if crit2
 			else // если не выполнен критерий, то рекурсия 
 			{
-				if (!lowLevel)
+				if (!wh.leaf)
 				{
-					mChildren[0]->CalcLocalCoeffToLowLevel(lowTree, calcCloseTrees);
-					mChildren[1]->CalcLocalCoeffToLowLevel(lowTree, calcCloseTrees);
+					calcLocalCoeffToLowLevel(lowCell, wh.child[0], calcCloseTrees);
+					calcLocalCoeffToLowLevel(lowCell, wh.child[1], calcCloseTrees);
 				}
 				else if (calcCloseTrees)
-					lt.closeTrees.push_back(this);
-			}
+					lt.closeCells.push_back(fromWho);
+			}//else if
 		}//if (lowTree != this)
 		else if (calcCloseTrees)
-			closeTrees.push_back(this); //себя тоже добавляем в ближнюю зону 
+			lt.closeCells.push_back(lowCell); //себя тоже добавляем в ближнюю зону 
 	}//CalcConvCoeffToLowLevel(...)
 
 
-	void Tree::CalcConvVeloByBiotSavart()
+
+	//Расчет влияния от ближних ячеек по формуле Био - Савара
+	void MortonTree::calcVeloBiotSavart(int lowCell)
 	{
-		for (size_t k = 0; k < closeTrees.size(); ++k)
+		auto& lc = mortonTree[lowCell];
+		for (size_t k = 0; k < lc.closeCells.size(); ++k)
 		{
 			//Локальные переменные для цикла
 			Point2D velI;
 			double dst2eps;
 
-			for (size_t i : index)
+			for (size_t i = lc.range[0]; i <= lc.range[1]; ++i)
 			{
-				PointsCopy& itDop = points[i];
+				//PointsCopy& itDop = pointsCopy[mortonCodes[i].originNumber];
 
 				velI.toZero();
 
-				const Point2D& posI = itDop.r();
+				const Point2D& posI = mortonCodes[i].r; //itDop.r();
 
-				for (size_t j : closeTrees[k]->index)
+				auto& rg = mortonTree[lc.closeCells[k]].range;
+				for (size_t j = rg[0]; j <= rg[1]; ++j)
 				{
-					const Point2D& posJ = points[j].r();
-					const double& gamJ = points[j].g();
+					auto& pt = mortonCodes[j];//pointsCopy[mortonCodes[j].originNumber];
+					const Point2D& posJ = pt.r;
+					const double& gamJ = pt.g;
 					dst2eps = std::max((posI - posJ).length2(), eps2);
 					velI += (gamJ / dst2eps) * (posI - posJ).kcross();
 #ifdef calcOp
@@ -538,497 +577,235 @@ namespace BH
 #endif
 				}//for j
 
-				itDop.veloCopy += velI;
+				pointsCopy[mortonCodes[i].originNumber].veloCopy += velI;
+				//itDop.veloCopy += velI;
 			}//for i 
 		}//for k
-	}//CalcConvByBiotSavart()
+	}//calcVeloBiotSavart(...)
 
-
-
-
-	bool isAfter(const PointsCopy& itI, const PointsCopy& itJ)
-	{
-		return (itI.panBegin == itJ.panEnd);
-	}
-
-	// Вспомогательная функция вычисления угла между векторами
-	double Alpha(const Point2D& p, const Point2D& s)
-	{
-		return atan2(cross3(p, s), p & s);
-	}
-
-	// Вспомогательная функция вычисления логарифма отношения норм векторов
-	double Lambda(const Point2D& p, const Point2D& s)
-	{
-		return 0.5 * log((s & s) / (p & p));
-	}
-
-	// Вспомогательная функция вычисления величины \f$ (\vec a \cdot \vec b) \cdot \vec c + (\vec a \times \vec b) \times \vec c \f$
-	Point2D Omega(const Point2D& a, const Point2D& b, const Point2D& c)
-	{
-		return (a & b) * c + (Point2D({ -c[1], c[0] })) * cross3(a, b);
-	}
-
-	void Tree::CalcInfluenceFromPanelsToPoints()
-	{
-		double alpha, lambda;
-
-		//auxillary vectors
-		Point2D p, s, di, dj;
-		Point2D v00;
-
-		//Локальные переменные для цикла
-		Point2D velI;
-		Point2D tempVel;
-
-		for (size_t i : index)
-		{
-			PointsCopy& itDop = points[i];
-
-			velI.toZero();
-
-			const Point2D& posI = itDop.r();
-			di = itDop.panEnd - itDop.panBegin;
-			double ileni = 1.0 / di.length();
-			const Point2D& taui = ileni * di;
-
-			itDop.i00.reserve(int(0.1 * points.size()));
-
-			for (size_t k = 0; k < closeTrees.size(); ++k)
-			{
-				for (size_t j : closeTrees[k]->index)
-				{
-					const PointsCopy& itDop2 = points[j];
-
-					const Point2D& posJ = itDop2.r();
-					const double& gamJ = itDop2.g();
-
-					if (posI != posJ)
-					{
-						dj = itDop2.panEnd - itDop2.panBegin;
-						double ilenj = 1.0 / dj.length();
-						const Point2D& tauj = ilenj * dj;
-
-						p = itDop.r() - itDop2.panEnd;
-						s = itDop.r() - itDop2.panBegin;
-
-						alpha = Alpha(p, s);
-
-						lambda = Lambda(p, s);
-
-						v00 = tauj;
-
-						tempVel = ilenj * (alpha * v00 + (lambda * v00).kcross());
-
-						velI += gamJ * tempVel;
-
-						if (itDop.i00.capacity() == itDop.i00.size())
-							itDop.i00.reserve(itDop.i00.size() * 2);
-
-						itDop.i00.push_back(tempVel);
-					}
-				}//for j
-			}//for k 
-			itDop.veloCopy += velI;
-		}//for i			
-	}//CalcInfluenceFromPanelsToPoints()
-
-	// Расчет влияния от слоев внутри одного уровня от панелей всех ближних уровней (для решения СЛАУ)
-	void Tree::CalcInfluenceFromPanels()
-	{
-		numvector<double, 3> alpha, lambda;
-
-		//auxillary vectors
-		Point2D p1, s1, p2, s2, di, dj, i00, i01, i10, i11;
-		numvector<Point2D, 3> v00, v11;
-		numvector<Point2D, 2> v01, v10;
-
-		int n = (int)points.size();
-		//Локальные переменные для цикла
-		Point2D velI, velIlin;
-
-		for (size_t i : index)
-		{
-			PointsCopy& itDop = points[i];
-			velI.toZero();
-			velIlin.toZero();
-
-			const Point2D& posI = itDop.r();
-			di = itDop.panEnd - itDop.panBegin;
-			double dilen = di.length();
-			double ileni = 1.0 / dilen;
-
-			const Point2D& taui = ileni * di;
-
-			itDop.i00.reserve(int(0.1 * n));
-
-#ifdef linScheme
-			itDop.i01.reserve(int(0.1 * n));
-			itDop.i10.reserve(int(0.1 * n));
-			itDop.i11.reserve(int(0.1 * n));
-#endif
-			for (size_t k = 0; k < closeTrees.size(); ++k)
-			{
-				for (size_t j : closeTrees[k]->index)
-				{
-					const PointsCopy& itDop2 = points[j];
-					const Point2D& posJ = itDop2.r();
-					const double& gamJ = itDop2.g();
-					const double& gamJlin = itDop2.gamLin;
-
-					if (posI != posJ)
-					{
-						dj = itDop2.panEnd - itDop2.panBegin;
-						double djlen = dj.length();
-						double ilenj = 1.0 / djlen;
-						const Point2D& tauj = ilenj * dj;
-
-						p1 = itDop.panEnd - itDop2.panEnd;
-						s1 = itDop.panEnd - itDop2.panBegin;
-						p2 = itDop.panBegin - itDop2.panEnd;
-						s2 = itDop.panBegin - itDop2.panBegin;
-
-
-						alpha = { \
-									isAfter(itDop2, itDop) ? 0.0 : Alpha(s2, s1), \
-									Alpha(s2, p1), \
-									isAfter(itDop, itDop2) ? 0.0 : Alpha(p1, p2) \
-						};
-
-						lambda = { \
-									isAfter(itDop2, itDop) ? 0.0 : Lambda(s2, s1), \
-									Lambda(s2, p1), \
-									isAfter(itDop, itDop2) ? 0.0 : Lambda(p1, p2) \
-						};
-
-						v00 = { \
-								Omega(s1, taui, tauj), \
-								- Omega(di, taui, tauj), \
-								Omega(p2, taui, tauj) \
-						};
-
-						i00 = ilenj * (alpha[0] * v00[0] + alpha[1] * v00[1] + alpha[2] * v00[2] \
-							+ (lambda[0] * v00[0] + lambda[1] * v00[1] + lambda[2] * v00[2]).kcross());
-
-#ifdef linScheme
-						double s1len2 = s1.length2();
-
-						v01 = {
-								0.5 / (djlen) * (((p1 + s1) & tauj) * Omega(s1, taui, tauj) - s1len2 * taui),
-								-0.5 * dilen / djlen * Omega(s1 + p2, tauj, tauj)
-						};
-
-						i01 = ilenj * ((alpha[0] + alpha[2]) * v01[0] + (alpha[1] + alpha[2]) * v01[1]\
-							+ (((lambda[0] + lambda[2]) * v01[0] + (lambda[1] + lambda[2]) * v01[1]) - 0.5 * dilen * tauj).kcross());
-
-						v10 = {
-								-0.5 / dilen * (((s1 + s2) & taui) * Omega(s1, taui, tauj) - s1len2 * tauj),
-								0.5 * djlen / dilen * Omega(s1 + p2, taui, taui)
-						};
-
-						i10 = ilenj * ((alpha[0] + alpha[2]) * v10[0] + alpha[2] * v10[1] \
-							+ (((lambda[0] + lambda[2]) * v10[0] + lambda[2] * v10[1]) + 0.5 * djlen * taui).kcross());
-
-						v11 = {
-							1.0 / (12.0 * dilen * djlen) * \
-							(2.0 * (s1 & Omega(s1 - 3.0 * p2, taui, tauj)) * Omega(s1, taui, tauj) - \
-									s1len2 * (s1 - 3.0 * p2)) - 0.25 * Omega(s1, taui, tauj),
-							-dilen / (12.0 * djlen) * Omega(di, tauj, tauj),
-							-djlen / (12.0 * dilen) * Omega(dj, taui, taui)
-						};
-
-
-						i11 = ilenj * ((alpha[0] + alpha[2]) * v11[0] + (alpha[1] + alpha[2]) * v11[1] + alpha[2] * v11[2]\
-							+ ((lambda[0] + lambda[2]) * v11[0] + (lambda[1] + lambda[2]) * v11[1] + lambda[2] * v11[2] \
-								+ 1.0 / 12.0 * (djlen * taui + dilen * tauj - 2.0 * Omega(s1, taui, tauj))).kcross());
-#endif
-
-
-						/// \todo не считать снова
-						if (isAfter(itDop, itDop2))
-						{
-							itDop.a = ileni * i00;
-#ifdef linScheme
-							itDop.a1 = ileni * i11;
-#endif
-						}
-						if (isAfter(itDop2, itDop))
-						{
-							itDop.c = ileni * i00;
-#ifdef linScheme
-							itDop.c1 = ileni * i11;
-#endif
-						}
-
-
-						if (itDop.i00.capacity() == itDop.i00.size())
-							itDop.i00.reserve(itDop.i00.size() * 2);
-
-						itDop.i00.push_back(ileni * i00);
-
-						velI += gamJ * i00;
-#ifdef linScheme					
-						if (itDop.i01.capacity() == itDop.i01.size())
-							itDop.i01.reserve(itDop.i01.size() * 2);
-
-						itDop.i01.push_back(ileni * i01);
-
-						if (itDop.i10.capacity() == itDop.i10.size())
-							itDop.i10.reserve(itDop.i10.size() * 2);
-
-						itDop.i10.push_back(ileni * i10);
-
-
-						if (itDop.i11.capacity() == itDop.i11.size())
-							itDop.i11.reserve(itDop.i11.size() * 2);
-
-						itDop.i11.push_back(ileni * i11);
-						velI += gamJlin * i01;
-						velIlin += gamJ * i10 + gamJlin * i11;
-#endif
-					}
-				}//for j
-			}//for k 
-
-			(itDop.veloCopy) += ileni * velI;
-#ifdef linScheme
-			(itDop.veloCopyLin) += ileni * velIlin;
-#endif
-
-		}//for i			
-	}//CalcInfluenceFromPanels()
-
-	// Обновление влияния от слоев внутри одного уровня от панелей всех ближних уровней (для решения СЛАУ)
-	void Tree::UpdateInfluence()
-	{
-		Point2D velI, velIlin;
-
-		for (size_t i : index)
-		{
-			PointsCopy& itDop = points[i];
-			velI.toZero();
-			velIlin.toZero();
-
-			const Point2D& posI = itDop.r();
-			int s = 0;
-
-			for (size_t k = 0; k < closeTrees.size(); ++k)
-			{
-				for (size_t j : closeTrees[k]->index)
-				{
-					const PointsCopy& itDop2 = points[j];
-					const Point2D& posJ = itDop2.r();
-					const double& gamJ = itDop2.g();
-					const double& gamJlin = itDop2.gamLin;
-
-					if (posI != posJ)
-					{
-						velI += gamJ * (itDop.i00[s]);
-#ifdef linScheme					
-						velI += gamJlin * (itDop.i01[s]);
-						velIlin += gamJ * (itDop.i10[s]) + gamJlin * (itDop.i11[s]);
-#endif
-						s++;
-					}
-				}//for j
-			}//for k
-			(itDop.veloCopy) += velI;
-#ifdef linScheme	
-			(itDop.veloCopyLin) += velIlin;
-#endif
-		}//for i
-	}//UpdateInfluence()
 
 	// Расчет конвективных скоростей внутри дерева нижнего уровня
-	void Tree::CalcInfluenceFromVortexFarCells()
+	void MortonTree::calcVeloTaylorExpansion(int lowCell)
 	{
-		for (size_t i : index)
+		auto& lc = mortonTree[lowCell];
+		for (size_t i = lc.range[0]; i <= lc.range[1]; ++i)
 		{
-			PointsCopy& itDop = points[i];
-			Point2D deltaPos = itDop.r() - posCentre;
-			Point2D v = E[0];
-			Point2D vL;
-			vL.toZero();
+			//PointsCopy& itDop = pointsCopy[mortonCodes[i].originNumber];
+			//Point2D deltaPos = itDop.r() - lc.centre;
+			Point2D deltaPos = mortonCodes[i].r - lc.centre;
+			Point2D v = lc.E[0];
 
-			if (order >= 2)
-			{
-				const Point2D& tau = itDop.tau;
-				const double& len = itDop.len;
-
-				Point2D vLin = multzA(E[1], deltaPos);
-				v += vLin;
-#ifdef linScheme
-				vLin = multzA(E[1], (len / 12.0) * tau);
-				vL += vLin;
-#endif
-				if (order >= 3)
-				{
-					Point2D r2 = multz(deltaPos, deltaPos);
-#ifndef pan
-					Point2D vSq = 0.5 * multzA(E[2], r2);
+			Point2D hh = deltaPos;
+			for (int q = 1; q < order - 1; ++q) {
+				v += iFact[q] * multzA(lc.E[q], hh);
+				hh = multz(hh, deltaPos);
 #ifdef calcOp
-					op += 2;
+				op += 10;
 #endif
+			}
+			v += iFact[order-1] * multzA(lc.E[order-1], hh);
+#ifdef calcOp
+			op += 6;
 #endif
 
-#ifdef pan
-					double len2 = len * len;
-					Point2D tau2 = multz(tau, tau);
-					Point2D vSq = 0.5 * multzA(E[2], r2 + (len2 / 12.0) * tau2);
-#ifdef calcOp
-					op += 6;
-#endif
-#endif
-					v += vSq;
-#ifdef linScheme
-					Point2D rtau = multz(deltaPos, tau);
-					vSq = 0.5 * multzA(E[2], (len / 6.0) * rtau);
-					vL += vSq;
-#endif
-					if (order >= 4)
-					{
-						Point2D r3 = multz(r2, deltaPos);
-#ifndef pan
-						Point2D vCub = 0.16666666666666667 * multzA(E[3], r3);
-#ifdef calcOp
-						op += 2;
-#endif
-#endif
-#ifdef pan
-						Point2D vCub = 0.16666666666666667 * multzA(E[3], r3 + 0.25 * len2 * multz(tau2, deltaPos));
-#ifdef calcOp
-						op += 5;
-#endif
-#endif
-						v += vCub;
-#ifdef linScheme
-						vCub = 0.16666666666666667 * multzA(E[3], 0.25 * len * multz(deltaPos, rtau) + 0.0125 * len2 * len * multz(tau2, tau));
-						vL += vCub;
-#endif
-					}//if order >= 4
-				}//if order >= 3
-			}//if order >= 2
-
-			itDop.veloCopy += Point2D({ -v[1], v[0] });
-			itDop.veloCopy *= IDPI;
+			pointsCopy[mortonCodes[i].originNumber].veloCopy += Point2D({ -v[1], v[0] });
+			pointsCopy[mortonCodes[i].originNumber].veloCopy *= IDPI;
+			
 #ifdef linScheme
 			itDop.veloCopyLin += Point2D({ -vL[1], vL[0] });
 			itDop.veloCopyLin *= IDPI;
 #endif
-		}
+		}//for i
 	}//CalcConvVeloToLowLevel()
+	
 
 
-	void Tree::Gauss(std::vector<std::vector<double>>& A, const std::vector<PointsCopy>& pnt)
+	//"Разрежение" двоичного представления беззнакового целого, вставляя по одному нулику между всеми битами
+	unsigned int MortonTree::expandBits(unsigned int v)
 	{
-		int n = (int)pnt.size();
+		// вставит 1 нуль
+		v = (v | (v << 8)) & 0x00FF00FF;      //  00000000`00000000`abcdefgh`ijklmnop 
+		//                                      | 00000000`abcdefgh`ijklmnop`00000000
+		//                                      = 00000000`abcdefgh`XXXXXXXX`ijklmnop
+		//                                      & 00000000`11111111`00000000`11111111
+		//                                      = 00000000`abcdefgh`00000000`ijklmnop
 
-		numvector<double, 3> alpha, lambda;
+		v = (v | (v << 4)) & 0x0F0F0F0F;      //  00000000`abcdefgh`00000000`ijklmnop 
+		//                                      | 0000abcd`efgh0000`0000ijkl`mnop0000
+		//                                      = 0000abcd`XXXXefgh`0000ijkl`XXXXmnop
+		//                                      & 00001111`00001111`00001111`00001111
+		//                                      = 0000abcd`0000efgh`0000ijkl`0000mnop
 
-		//auxillary vectors
-		Point2D p1, s1, p2, s2, di, dj, i00, i01, i10, i11;
-		numvector<Point2D, 3> v00, v11;
-		numvector<Point2D, 2> v01, v10;
+		v = (v | (v << 2)) & 0x33333333;      //  0000abcd`0000efgh`0000ijkl`0000mnop 
+		//                                      | 00abcd00`00efgh00`00ijkl00`00mnop00
+		//                                      = 00abXXcd`00efXXgh`00ijXXkl`00mnXXop
+		//                                      & 00110011`00110011`00110011`00110011
+		//                                      = 00ab00cd`00ef00gh`00ij00kl`00mn00op
 
-		//Локальные переменные для цикла
-		Point2D velI, velIlin;
+		v = (v | (v << 1)) & 0x55555555;      //  00ab00cd`00ef00gh`00ij00kl`00mn00op 
+		//                                      | 0ab00cd0`0ef00gh0`0ij00kl0`0mn00op0
+		//                                      = 0aXb0cXd`0eXf0gXh`0iXj0kXl`0mXn0oXp
+		//                                      & 01010101`01010101`01010101`01010101
+		//                                      = 0a0b0c0d`0e0f0g0h`0i0j0k0l`0m0n0o0p
+		return v;
+	}
 
-		for (int i = 0; i < n; ++i)
+
+	//Мортоновский код для пары из чисел типа double
+	//Исходное число - строго в диапазоне [0, 1 / (1.0 + 1/(2^codeLength - 1) ))
+	unsigned int MortonTree::morton2D(const Point2D& r)
+	{
+		/*
+		if (x < 0) std::cout << "x*... < 0" << std::endl;
+		if (y < 0) std::cout << "y*... < 0" << std::endl;
+
+		if (x * twoPowCodeLength > twoPowCodeLengthMinus)
+			std::cout << "x*... > ..." << std::endl;
+
+		if (y * twoPowCodeLength > twoPowCodeLengthMinus)
+			std::cout << "y*... > ..." << std::endl;
+
+		x = std::min(std::max(x * twoPowCodeLength, 0.0), twoPowCodeLengthMinus);
+		y = std::min(std::max(y * twoPowCodeLength, 0.0), twoPowCodeLengthMinus);
+
+		unsigned int xx = expandBits((unsigned int)x);
+		unsigned int yy = expandBits((unsigned int)y);
+		*/
+		const Point2D& rscale = twoPowCodeLength * r;
+		const unsigned int& xx = expandBits((unsigned int)(rscale[0]));
+		const unsigned int& yy = expandBits((unsigned int)(rscale[1]));
+		return yy | (xx << 1);
+	}
+
+
+
+	//========================================================
+	void MortonTree::RSort_step3(TParticleCode* source, TParticleCode* dest, unsigned int n, unsigned int* offset, unsigned char sortable_bit)
+	{
+		//unsigned char* b = (unsigned char*)&source[n].key + sortable_bit;
+
+		for (unsigned int i = 0; i < n; ++i)
 		{
-			const PointsCopy& itDop = pnt[i];
-			velI.toZero();
-			velIlin.toZero();
+			TParticleCode* src = &source[i];
+			unsigned int off = (src->key >> (sortable_bit * 8)) & 0xFF;
+			dest[offset[off]++] = *src;
+		}
+	}
+	//========================================================
+	void MortonTree::RSort_Node3(TParticleCode* m, TParticleCode* m_temp, unsigned int n)
+	{
+		// Заводим массив корзин
+		unsigned int s[sizeof(m->key) * 256] = { 0 };
+		// Заполняем массив корзин для всех разрядов
+		for (unsigned int i = 0; i < n; ++i)
+		{
+			unsigned int key = m[i].key;
+			for (unsigned int digit = 0; digit < sizeof(m->key); digit++)
+				++s[((key >> (digit << 3)) & 0xFF) + (digit << 8)];
+		}
 
-			const Point2D& posI = itDop.r();
-			di = itDop.panEnd - itDop.panBegin;
-			double dilen = di.length();
-			double ileni = 1.0 / dilen;
-
-			const Point2D& taui = ileni * di;
-
-			for (int j = 0; j < n; ++j)
+		// Пересчитываем смещения для корзин
+		for (unsigned int digit = 0; digit < sizeof(m->key); digit++)
+		{
+			unsigned int off = 0;
+			for (unsigned int i = 0; i < 256; i++)
 			{
-				const PointsCopy& itDop2 = pnt[j];
-				const Point2D& posJ = itDop2.r();
+				auto& rs = s[i + (digit << 8)];
+				unsigned int value = rs;
+				rs = off;
+				off += value;
+			}
+		}
 
-				if (posI != posJ)
+		// Вызов сортировки по битам от младших к старшим (LSD)
+		for (unsigned int digit = 0; digit < sizeof(m->key); digit++)
+		{
+			RSort_step3(m, m_temp, n, &s[digit << 8], digit);
+			std::swap(m, m_temp);
+			//TParticleCode* temp = m;
+			//m = m_temp;
+			//m_temp = temp;
+		}
+
+		// Если ключ структуры однобайтовый, копируем отсортированное в исходный массив
+		if (sizeof(m->key) == 1)
+		{
+			std::swap(m, m_temp);
+			//TParticleCode* temp = m;
+			//m = m_temp;
+			//m_temp = temp;
+			memcpy(m, m_temp, n * sizeof(TParticleCode));
+		}
+	}
+
+
+	void MortonTree::RSort_Parallel(TParticleCode* m, TParticleCode* m_temp, unsigned int n, unsigned int* s)
+	{
+		// Количество задействованных потоков
+		unsigned char threads = omp_get_max_threads();
+		//std::cout << "threads = " << (int)threads << std::endl;
+
+#pragma omp parallel num_threads(threads)
+		{
+			TParticleCode* source = m;
+			TParticleCode* dest = m_temp;
+			unsigned int l = omp_get_thread_num();
+			unsigned int div = n / omp_get_num_threads();
+			unsigned int mod = n % omp_get_num_threads();
+			unsigned int left_index = l < mod ? (div + (mod == 0 ? 0 : 1)) * l : n - (omp_get_num_threads() - l) * div;
+			unsigned int right_index = left_index + div - (mod > l ? 0 : 1);
+
+			for (unsigned int digit = 0; digit < sizeof(m->key); ++digit)
+			{
+				unsigned int s_sum[256] = { 0 };
+				unsigned int s0[256] = { 0 };
+				unsigned char* b1 = (unsigned char*)&source[right_index].key;
+				unsigned char* b2 = (unsigned char*)&source[left_index].key;
+				while (b1 >= b2)
 				{
-					dj = itDop2.panEnd - itDop2.panBegin;
-					double djlen = dj.length();
-					double ilenj = 1.0 / djlen;
-					const Point2D& tauj = ilenj * dj;
-
-					p1 = itDop.panEnd - itDop2.panEnd;
-					s1 = itDop.panEnd - itDop2.panBegin;
-					p2 = itDop.panBegin - itDop2.panEnd;
-					s2 = itDop.panBegin - itDop2.panBegin;
-
-
-					alpha = { \
-								isAfter(itDop2, itDop) ? 0.0 : Alpha(s2, s1), \
-								Alpha(s2, p1), \
-								isAfter(itDop, itDop2) ? 0.0 : Alpha(p1, p2) \
-					};
-
-					lambda = { \
-								isAfter(itDop2, itDop) ? 0.0 : Lambda(s2, s1), \
-								Lambda(s2, p1), \
-								isAfter(itDop, itDop2) ? 0.0 : Lambda(p1, p2) \
-					};
-
-					v00 = { \
-							Omega(s1, taui, tauj), \
-							- Omega(di, taui, tauj), \
-							Omega(p2, taui, tauj) \
-					};
-
-					i00 = ilenj * (alpha[0] * v00[0] + alpha[1] * v00[1] + alpha[2] * v00[2] \
-						+ (lambda[0] * v00[0] + lambda[1] * v00[1] + lambda[2] * v00[2]).kcross());
-
-#ifdef linScheme
-					double s1len2 = s1.length2();
-
-					v01 = {
-							0.5 / (djlen) * (((p1 + s1) & tauj) * Omega(s1, taui, tauj) - s1len2 * taui),
-							-0.5 * dilen / djlen * Omega(s1 + p2, tauj, tauj)
-					};
-
-					i01 = ilenj * ((alpha[0] + alpha[2]) * v01[0] + (alpha[1] + alpha[2]) * v01[1]\
-						+ (((lambda[0] + lambda[2]) * v01[0] + (lambda[1] + lambda[2]) * v01[1]) - 0.5 * dilen * tauj).kcross());
-
-					v10 = {
-							-0.5 / dilen * (((s1 + s2) & taui) * Omega(s1, taui, tauj) - s1len2 * tauj),
-							0.5 * djlen / dilen * Omega(s1 + p2, taui, taui)
-					};
-
-					i10 = ilenj * ((alpha[0] + alpha[2]) * v10[0] + alpha[2] * v10[1] \
-						+ (((lambda[0] + lambda[2]) * v10[0] + lambda[2] * v10[1]) + 0.5 * djlen * taui).kcross());
-
-					v11 = {
-						1.0 / (12.0 * dilen * djlen) * \
-						(2.0 * (s1 & Omega(s1 - 3.0 * p2, taui, tauj)) * Omega(s1, taui, tauj) - \
-								s1len2 * (s1 - 3.0 * p2)) - 0.25 * Omega(s1, taui, tauj),
-						-dilen / (12.0 * djlen) * Omega(di, tauj, tauj),
-						-djlen / (12.0 * dilen) * Omega(dj, taui, taui)
-					};
-
-
-					i11 = ilenj * ((alpha[0] + alpha[2]) * v11[0] + (alpha[1] + alpha[2]) * v11[1] + alpha[2] * v11[2]\
-						+ ((lambda[0] + lambda[2]) * v11[0] + (lambda[1] + lambda[2]) * v11[1] + lambda[2] * v11[2] \
-							+ 1.0 / 12.0 * (djlen * taui + dilen * tauj - 2.0 * Omega(s1, taui, tauj))).kcross());
-#endif
-
-
-					A[i][j] = ileni * (i00 & itDop.tau);
-					A[i][j + n] = ileni * (i01 & itDop.tau);
-					A[i + n][j] = ileni * (i10 & itDop.tau);
-					A[i + n][j + n] = ileni * (i11 & itDop.tau);
+					++s0[*(b1 + digit)];
+					b1 -= sizeof(TParticleCode);
 				}
-			}//for j
+				for (unsigned int i = 0; i < 256; i++)
+				{
+					s[i + 256 * l] = s0[i];
+				}
 
-			A[i][i] = -0.5 * ileni;
-			A[i + n][i + n] = -0.041666666666666667 * ileni;
+#pragma omp barrier
+				for (unsigned int j = 0; j < threads; j++)
+				{
+					for (unsigned int i = 0; i < 256; i++)
+					{
+						s_sum[i] += s[i + 256 * j];
+						if (j < l)
+						{
+							s0[i] += s[i + 256 * j];
+						}
+					}
+				}
 
+				for (unsigned int i = 1; i < 256; ++i)
+				{
+					s_sum[i] += s_sum[i - 1];
+					s0[i] += s_sum[i - 1];
+				}
+				unsigned char* b = (unsigned char*)&source[right_index].key + digit;
+				TParticleCode* v1 = &source[right_index];
+				TParticleCode* v2 = &source[left_index];
+				while (v1 >= v2)
+				{
+					dest[--s0[*b]] = *v1--;
+					b -= sizeof(TParticleCode);
+				}
+#pragma omp barrier
+				std::swap(source, dest);
+			}
+		}
+
+		// Если ключ структуры однобайтовый, просто копируем в исходный массив
+		if (sizeof(m->key) == 1)
+		{
+			memcpy(m, m_temp, n * sizeof(TParticleCode));
 		}
 	}
 

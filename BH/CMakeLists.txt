@@ -1,11 +1,11 @@
 #/*---------------------------------*- BH -*------------------*---------------*\
-#|        #####   ##  ##         |                            | Version 1.0    |
-#|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/05     |
+#|        #####   ##  ##         |                            | Version 1.1    |
+#|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2021/08/24     |
 #|        #####   ######         |  for 2D vortex particles   *----------------*
 #|        ##  ##  ##  ##         |  Open Source Code                           |
 #|        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 #|                                                                             |
-#| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+#| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 #*-----------------------------------------------------------------------------*
 #| File name: CMakeLists.txt                                                   |
 #| Info: Source code of BH                                                     |
@@ -25,7 +25,7 @@
 #| along with BH.  If not, see <http://www.gnu.org/licenses/>.                 |
 #\*---------------------------------------------------------------------------*/
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.0)
 project(BH LANGUAGES CXX)
 
 set(CMAKE_CONFIGURATION_TYPE "Debug;Release")

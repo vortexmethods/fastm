@@ -6,11 +6,11 @@ fastm: Fast algorithms for 2D vortex particle method
 ![Repo Size](https://img.shields.io/github/repo-size/vortexmethods/fastm.svg)
 ![License](https://img.shields.io/github/license/vortexmethods/fastm.svg)
 
-Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina
+Copyright (C) 2020-2022 Ilia Marchevsky, Evgeniya Ryatina, Alexandra Kolganova
 
 Программная реализация (с открытым исходным кодом) быстрых алгоритмов расчета скоростей вихревых частиц для двумерных методов вычислительной гидродинамики.
 
-Версия 1.0 от 05 августа 2021 г.
+Версия 1.1 от 24 августа 2022 г.
 
 ЛИЦЕНЗИЯ
 --------
@@ -116,6 +116,7 @@ Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina
 
 * Версия 1.0 представлена 09 августа 2021 г. в рамках программы ["Вычислительные технологии, многомерный анализ данных и моделирование"](https://sochisirius.ru/obuchenie/graduates/smena901/4333) (Образовательный центр "Сириус", Сочи, 2-22 августа 2021 г.)
 
+* Версия 1.1 (BH) обновлен код для BH, в него включено дерево, которое строится по кривой Мортона (24 августа 2022 г.)
 
 ВОПРОСЫ, ПРЕДЛОЖЕНИЯ И ЗАМЕЧАНИЯ
 --------------------------------
@@ -143,6 +144,12 @@ Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina
 <img src="https://raw.githubusercontent.com/vortexmethods/VM2D/master/docs/_static/authors/Ryatina.jpg" alt="Рятина Е.П."/>
 <br />
 Рятина Евгения Павловна
+</td>
+
+<td align="center" valign="center" width="20%">
+<img src="https://raw.githubusercontent.com/vortexmethods/VM2D/master/docs/_static/authors/Kolganova.jpg" alt="Колганова А.О."/>
+<br />
+Колганова Александра Олеговна
 </td>
 
 </tr>
