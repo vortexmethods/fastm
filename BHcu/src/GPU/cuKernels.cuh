@@ -1,11 +1,11 @@
 /*--------------------------------*- BHcu -*-----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.0    |
-| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2021/08/05     |
+| #####   ##  ##                |                            | Version 1.1    |
+| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2022/08/28     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 | Copyright (C) 2013, Texas State University-San Marcos. All rights reserved. |
 *-----------------------------------------------------------------------------*
 | File name: cuKernels.cuh                                                    |
@@ -31,8 +31,9 @@
 \brief Заголовки интерфейса с CUDA
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 28 августа 2022 г.
 */
 
 #ifndef CUKERNELS_CUH_
@@ -72,59 +73,17 @@
 
 namespace BHcu
 {
-    struct moms
-    {
-        real gam;
-#ifdef USE_DIP
-        real foo;
-
-#ifdef __CUDACC__
-        real2 dip;
-#else
-        realPoint dip;
-#endif
-
-#ifdef USE_QUA
-
-#ifdef __CUDACC__
-        real2 qua;
-#else
-        realPoint qua;
-#endif
-
-       
-#ifdef USE_OCT
-
-#ifdef __CUDACC__
-        real2 oct;
-#else
-        realPoint oct;
-#endif
-
-#ifdef USE_HEX
-#ifdef __CUDACC__
-        real2 hex;
-#else
-        realPoint hex;
-#endif
-#endif
-#endif
-#endif
-#endif
-    };
-
- 
     void CudaSelect(int dev);
     
     void setBlocks(int& blocks_);
 
-	void* cudaNew(int n, size_t sizeType);
+        void* cudaNew(int n, size_t sizeType);
 
-	void cudaDelete(void* cudaPtr);
-	
-	void cudaCopyVecToDevice(void* hostPtr, void* cudaPtr, size_t n, size_t typeSize);
- 
-	void cudaCopyVecFromDevice(void* cudaPtr, void* hostPtr, size_t n, size_t typeSize);
+        void cudaDelete(void* cudaPtr);
+
+        void cudaCopyVecToDevice(void* hostPtr, void* cudaPtr, size_t n, size_t typeSize);
+
+        void cudaCopyVecFromDevice(void* cudaPtr, void* hostPtr, size_t n, size_t typeSize);
 
 
     void CudaTest(const char* msg);
@@ -146,7 +105,8 @@ namespace BHcu
         int nnodesd, int nbodiesd,
         volatile int* __restrict startd, volatile int* __restrict childd,
         volatile int* __restrict massd,
-        volatile moms* __restrict momd,
+        /*volatile moms* __restrict momd,*/
+        volatile real * __restrict momsNew,
         volatile realPoint* __restrict posd,
         volatile realPoint* __restrict maxrd, volatile realPoint* __restrict minrd);
 
@@ -167,7 +127,8 @@ namespace BHcu
         volatile int* __restrict startd,
         volatile int* __restrict massd,
         const real* __restrict gamd,
-        volatile moms* __restrict momd);
+        /*volatile moms* __restrict momd*/
+        volatile real* __restrict momsNew);
 
     /******************************************************************************/
     /*** compute center of mass ***************************************************/
@@ -177,8 +138,10 @@ namespace BHcu
         const int nnodesd, const int nbodiesd,
         volatile int* __restrict countd, const int* __restrict childd,
         volatile int* __restrict massd,
-        volatile moms* __restrict momd,
-        volatile realPoint* __restrict posd);
+        /*volatile moms* __restrict momd,*/
+        volatile real* __restrict momsNew,
+        volatile realPoint* __restrict posd,
+        const int * __restrict cftl);
 
 
     /******************************************************************************/
@@ -200,7 +163,8 @@ namespace BHcu
         int* __restrict errd,
         real itolsqd, real epssqd,
         const int* __restrict sortd, const int* __restrict childd,
-        const moms* __restrict momd,
+        /*const moms* __restrict momd,*/
+        const real* __restrict momsNew,
         const realPoint* __restrict posd,
         volatile realPoint* __restrict veld);
 
@@ -214,7 +178,8 @@ namespace BHcu
         int* __restrict errd,
         real itolsqd, real epssqd,
         const int* __restrict sortd, const int* __restrict childd,
-        const moms* __restrict momd,
+        /*const moms * __restrict momd,*/
+        const real * __restrict momsNew,
         const realPoint* __restrict posd,
         volatile realPoint* __restrict veld);
 }//namespace BHcu

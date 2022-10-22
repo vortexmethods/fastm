@@ -1,11 +1,11 @@
 #/*--------------------------------*- BHcu -*-----------------*---------------*\
-#| #####   ##  ##                |                            | Version 1.0    |
-#| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2021/08/05     |
+#| #####   ##  ##                |                            | Version 1.1    |
+#| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2022/08/28     |
 #| #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 #| ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 #| #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
 #|                                                                             |
-#| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+#| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 #| Copyright (C) 2013, Texas State University-San Marcos. All rights reserved. |
 #*-----------------------------------------------------------------------------*
 #| File name: CMakeLists.txt                                                   |
@@ -26,13 +26,12 @@
 #| along with BHcu.  If not, see <http://www.gnu.org/licenses/>.               |
 #\*---------------------------------------------------------------------------*/
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.12)
 project(BHcu LANGUAGES CXX CUDA)
 
 enable_language(CUDA)
 #set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wno-deprecated-gpu-targets -gencode arch=compute_35,code=sm_35 -gencode arch=compute_37,code=sm_37 -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_53,code=sm_53 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_62,code=sm_62 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_72,code=sm_72 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80")
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_52,code=sm_52 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80")
-#set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_52,code=sm_52 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_52,code=sm_52 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75")
 
 set(CMAKE_CONFIGURATION_TYPE "Debug;Release")
 
@@ -78,5 +77,12 @@ if (OPENMP_FOUND)
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
     #set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_CXX_FLAGS} -fopenmp")
 endif()
+
+#CUDA
+target_compile_options(BHcu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+#                       --generate-line-info
+                       --use_fast_math
+#                       --relocatable-device-code=true
+                       >)
 
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})

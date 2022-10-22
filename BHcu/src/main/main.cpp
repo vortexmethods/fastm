@@ -1,11 +1,11 @@
 /*--------------------------------*- BHcu -*-----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.0    |
-| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2021/08/05     |
+| #####   ##  ##                |                            | Version 1.1    |
+| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2022/08/28     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 | Copyright (C) 2013, Texas State University-San Marcos. All rights reserved. |
 *-----------------------------------------------------------------------------*
 | File name: main.cu                                                          |
@@ -70,8 +70,9 @@
  \brief Barnes-Hut method (CUDA) for 2D vortex particles
  \author Марчевский Илья Константинович
  \author Рятина Евгения Павловна
- \version 1.0
- \date 05 августа 2021 г.
+ \author Колганова Александра Олеговна
+ \version 1.1
+ \date 28 августа 2022 г.
  */
 
 #include <algorithm>
@@ -83,6 +84,8 @@
 #include <vector>
 
 #include "omp.h"
+
+//#define NUMVECTORwithoutARRAY
 
 #include "cuKernels.cuh"
 #include "Logo.h"
@@ -97,6 +100,7 @@ const real IDPI = (real)0.15915494309189534;
 
 /******************************************************************************/
 /******************************************************************************/
+void setBinom(std::vector<int>& cft);
 
 int main(int argc, char** argv)
 {
@@ -124,13 +128,14 @@ int main(int argc, char** argv)
     std::vector<int> mass;
 	std::vector<real> gam;
     std::vector<realPoint> pos, vel;
+	std::vector<int> cft;
 
     //Указатели на массивы, хранящиеся на device
-	int* errl, * sortl, * childl, * countl, * startl;
+	int* errl, * sortl, * childl, * countl, * startl, *cftl;
 	int * massl;
 	real * gaml;
-	moms * moml;
-	
+	real * moms;
+
 	realPoint* posl;
 	realPoint* vell, * veld;
 	realPoint* maxrl;
@@ -156,10 +161,13 @@ int main(int argc, char** argv)
 		gam.resize(nbodies);
 		pos.resize(nbodies);
 		vel.resize(nbodies);
+
+		cft.resize(order * (order + 1));
+		setBinom(cft);
 	}
 	catch (...)
 	{
-		fprintf(stderr, "cannot allocate host nenory\n");  exit(-1);
+		fprintf(stderr, "cannot allocate host memory\n");  exit(-1);
 	}
 
 	std::vector<realVortex> vtx(nbodies);
@@ -191,12 +199,12 @@ int main(int argc, char** argv)
 
         // allocate memory
         if (run == 0) {				
-			                       
+			cftl = (int*)cudaNew(order * (order + 1), sizeof(int));                 
             errl = (int*)cudaNew(1, sizeof(int));
             childl = (int*)cudaNew((nnodes + 1) * 4, sizeof(int));
             massl = (int*)cudaNew(nnodes + 1, sizeof(int));
             gaml = (real*)cudaNew(nnodes + 1, sizeof(real));
-            moml = (moms*)cudaNew(nnodes + 1, sizeof(moms));
+			moms = (real*) cudaNew((nnodes + 1) * (order * 2 - 1), sizeof(real));
             posl = (realPoint*)cudaNew(nnodes + 1, sizeof(realPoint));
             vell = (realPoint*)cudaNew(nnodes + 1, sizeof(realPoint));
             veld = (realPoint*)cudaNew(nnodes + 1, sizeof(realPoint));
@@ -216,6 +224,7 @@ int main(int argc, char** argv)
             cudaCopyVecToDevice(pos.data(), posl, nbodies, sizeof(realPoint));
             cudaCopyVecToDevice(vel.data(), vell, nbodies, sizeof(realPoint));
             cudaCopyVecToDevice(vel.data(), veld, nbodies, sizeof(realPoint));
+			cudaCopyVecToDevice(cft.data(), cftl, (order * order), sizeof(int));
         }
         
         // run timesteps (launch GPU kernels)
@@ -226,17 +235,17 @@ int main(int argc, char** argv)
         
         timing[0] += cuInitializationKernel(errl);               
         
-		timing[1] += cuBoundingBoxKernel(nnodes, nbodies, startl, childl, massl, moml, posl, maxrl, minrl);
+		timing[1] += cuBoundingBoxKernel(nnodes, nbodies, startl, childl, massl, moms, posl, maxrl, minrl); /*cuBoundingBoxKernel(nnodes, nbodies, startl, childl, massl, moml, posl, maxrl, minrl);*/
                 
         timing[2] += cuClearKernel1(nnodes, nbodies, childl);
         timing[2] += cuTreeBuildingKernel(nnodes, nbodies, errl, childl, posl);
-        timing[2] += cuClearKernel23(nnodes, nbodies, startl, massl, gaml, moml);
+        timing[2] += cuClearKernel23(nnodes, nbodies, startl, massl, gaml, moms); /*cuClearKernel23(nnodes, nbodies, startl, massl, gaml, moml);*/
                 
-        timing[3] += cuSummarizationKernel(nnodes, nbodies, countl, childl, massl, moml, posl);
+        timing[3] += cuSummarizationKernel(nnodes, nbodies, countl, childl, massl, moms, posl, cftl);/*cuSummarizationKernel(nnodes, nbodies, countl, childl, massl, moml, posl);*/
 	    
         timing[4] += cuSortKernel(nnodes, nbodies, sortl, countl, startl, childl);
 
-        timing[5] += cuForceCalculationKernel(nnodes, nbodies, errl, itolsq, epssq, sortl, childl, moml, posl, vell);
+        timing[5] += cuForceCalculationKernel(nnodes, nbodies, errl, itolsq, epssq, sortl, childl, moms, posl, vell); /*cuForceCalculationKernel(nnodes, nbodies, errl, itolsq, epssq, sortl, childl, moml, posl, vell);*/
             
         // transfer result back to CPU
 		//cudaCopyVecFromDevice(errl, error.data(), 1, sizeof(int));
@@ -282,7 +291,7 @@ int main(int argc, char** argv)
 
 		if (!realBSfromFile)
 		{
-			float tBS = cuForceDirectCalculationKernel(nnodes, nbodies, errl, itolsq, epssq, sortl, childl, moml, posl, veld);
+			float tBS = cuForceDirectCalculationKernel(nnodes, nbodies, errl, itolsq, epssq, sortl, childl, moms, posl, veld); //cuForceDirectCalculationKernel(nnodes, nbodies, errl, itolsq, epssq, sortl, childl, moml, posl, veld);
 			std::cout << "done!" << std::endl;
 			std::cout << "Time (Biot-Savart): " << tBS << " ms" << std::endl;
 
@@ -333,7 +342,6 @@ int main(int argc, char** argv)
 	cudaDelete(childl);
 
 	cudaDelete(massl);
-	cudaDelete(moml);
 	cudaDelete(posl);
 	cudaDelete(vell);
 	cudaDelete(veld);
@@ -346,4 +354,17 @@ int main(int argc, char** argv)
 	cudaDelete(minrl);
 
     return 0;
+}
+
+void setBinom(std::vector<int>& cft)
+{    
+    cft[0] = 1;
+
+    for (int i = 1; i < order; ++i)
+    {
+        cft[i * order + 0] = 1;
+        cft[i * order + i] = 1;
+        for (int j = 1; j < i; ++j)
+            cft[i * order + j] = cft[(i - 1) * order + j] + cft[(i - 1) * order + (j - 1)];
+    }
 }

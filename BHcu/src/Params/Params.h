@@ -1,11 +1,11 @@
 /*--------------------------------*- BHcu -*-----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.0    |
-| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2021/08/05     |
+| #####   ##  ##                |                            | Version 1.1    |
+| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2022/08/28     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 | Copyright (C) 2013, Texas State University-San Marcos. All rights reserved. |
 *-----------------------------------------------------------------------------*
 | File name: Params.h                                                         |
@@ -31,8 +31,9 @@
 \brief Параметры решаемой задачи
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 28 августа 2022 г.
 */
 
 #ifndef PARAMS_H_
@@ -42,21 +43,17 @@
 
 namespace BHcu
 {
-
-#define USE_DIP
-#define USE_QUA
-#define USE_OCT
-#define USE_HEX
-
 	/// Радиус вихревого элемента
-#define EPS 1e-3
+#define EPS 1e-4
 /// Параметр точности 
-#define THETA 0.91
+#define THETA 0.62
 
-// Имя файла с задачей
-	static const std::string nameFile = "../../test/test100000.txt";
+	static const int order = 8;   //1-MONOPOLE
+	
+	// Имя файла с задачей
+	static const std::string nameFile = "../../test/test2000000.txt";
 	// Название задачи для файла с результатом
-	static const std::string task = "100k";
+	static const std::string task = "2m";
 
 	//Сравнение с прямым методом
 	static const bool compare = true;

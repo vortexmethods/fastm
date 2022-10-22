@@ -1,11 +1,11 @@
 /*--------------------------------*- BHcu -*-----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.0    |
-| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2021/08/05     |
+| #####   ##  ##                |                            | Version 1.1    |
+| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2022/08/28     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 | Copyright (C) 2013, Texas State University-San Marcos. All rights reserved. |
 *-----------------------------------------------------------------------------*
 | File name: cuKernels.cu                                                     |
@@ -31,8 +31,9 @@
 \brief Реализация CUDA-ядер
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 28 августа 2022 г.
 */
 
 
@@ -55,13 +56,10 @@
 
 namespace BHcu
 {
-
-int blocks;
+    int blocks;
 __device__ volatile int stepd, bottomd, maxdepthd;
 __device__ unsigned int blkcntd;
 __device__ volatile real radiusd;
-
-
 
 void setBlocks(int& blocks_)
 {
@@ -198,7 +196,6 @@ void CudaTest(const char* msg)
 /// CUDA Kernels
 //////////////////
 
-
 /******************************************************************************/
 /*** initialize memory ********************************************************/
 /******************************************************************************/
@@ -218,7 +215,7 @@ __global__ void InitializationKernel(int* __restrict errd)
 
 __global__
 __launch_bounds__(THREADS1, FACTOR1)
-void BoundingBoxKernel(int nnodesd, int nbodiesd, volatile int* __restrict startd, volatile int* __restrict childd, volatile int* __restrict massd, volatile moms* __restrict momd, volatile real2* __restrict posd, volatile real2* __restrict maxrd, volatile real2* __restrict minrd)
+void BoundingBoxKernel(int nnodesd, int nbodiesd, volatile int* __restrict startd, volatile int* __restrict childd, volatile int* __restrict massd, /*volatile moms* __restrict momd,*/ volatile real* __restrict momsNew, volatile real2* __restrict posd, volatile real2* __restrict maxrd, volatile real2* __restrict minrd)
 {
     register int i, j, k, inc;
     register real2 val;
@@ -290,23 +287,10 @@ void BoundingBoxKernel(int nnodesd, int nbodiesd, volatile int* __restrict start
             bottomd = k;
 
             massd[k] = -1;
-            momd[k].gam = 0;
-#ifdef USE_DIP
-            momd[k].dip.x = 0;
-            momd[k].dip.y = 0;
-#ifdef USE_QUA
-            momd[k].qua.x = 0;
-            momd[k].qua.y = 0;
-#ifdef USE_OCT
-            momd[k].oct.x = 0;
-            momd[k].oct.y = 0;
-#ifdef USE_HEX            
-            momd[k].hex.x = 0;
-            momd[k].hex.y = 0;
-#endif
-#endif
-#endif
-#endif
+
+            for(int s = 0; s < (order * 2 - 1); ++s)
+                momsNew[k * (order * 2 - 1) + s] = 0;
+
             startd[k] = 0;
             posd[k].x = (minr.x + maxr.x) / 2;
             posd[k].y = (minr.y + maxr.y) / 2;
@@ -504,7 +488,7 @@ void ClearKernel2(int nnodesd, volatile int* __restrict startd, volatile int* __
 
 __global__
 __launch_bounds__(1024, 1)
-void ClearKernel3(int nnodesd, int nbodies, const real* __restrict gamd, volatile moms* __restrict momd)
+void ClearKernel3(int nnodesd, int nbodies, const real* __restrict gamd, volatile real* __restrict momsNew)
 {
     register int k, inc;
 
@@ -512,31 +496,14 @@ void ClearKernel3(int nnodesd, int nbodies, const real* __restrict gamd, volatil
     k = threadIdx.x + blockIdx.x * blockDim.x;  // align to warp size
     
     // iterate over all cells assigned to thread
-    while (k < nnodesd) {        
-        momd[k].gam = (k < nbodies) ? gamd[k] : 0;
-#ifdef USE_DIP
-        momd[k].dip.x = 0;
-        momd[k].dip.y = 0;
-#ifdef USE_QUA
-        momd[k].qua.x = 0;
-        momd[k].qua.y = 0;
-#ifdef USE_OCT
-        momd[k].oct.x = 0;
-        momd[k].oct.y = 0;
-#ifdef USE_HEX
-        momd[k].hex.x = 0;
-        momd[k].hex.y = 0;
-#endif
-#endif
-#endif
-#endif        
+    while (k < nnodesd) {   
+          momsNew[k * (order * 2 - 1)] = (k < nbodies) ? gamd[k] : 0;
+          for(int s = 1; s < (order * 2 - 1); ++s)
+            momsNew[k * (order * 2 - 1) + s] = 0;
+
         k += inc;
     }
 }
-
-
-
-
 
 /******************************************************************************/
 /*** compute center of mass ***************************************************/
@@ -544,26 +511,19 @@ void ClearKernel3(int nnodesd, int nbodies, const real* __restrict gamd, volatil
 
 __global__
 __launch_bounds__(THREADS3, FACTOR3)
-void SummarizationKernel(const int nnodesd, const int nbodiesd, volatile int* __restrict countd, const int* __restrict childd, volatile int* __restrict massd, volatile moms* __restrict momd, volatile real2* __restrict posd)
+void SummarizationKernel(const int nnodesd, const int nbodiesd, volatile int* __restrict countd, const int* __restrict childd, volatile int* __restrict massd, volatile real* __restrict momsNew, volatile real2* __restrict posd,
+        const int * __restrict cftl)
 {
     register int i, j, k, ch, inc, cnt, bottom, flag;
-    register real g, cg;
-#ifdef USE_DIP
-    register real2 cen, dr;
-    register real2 d, cd, mh;
-#ifdef USE_QUA
-    register real2 q, cq, dh;
-#ifdef USE_OCT
-    register real2 o, co, qh;
-#ifdef USE_HEX
-    register real2 h, chex, oh;
-#endif
-#endif
-#endif
-#endif
-    register int m, cm;
-    __shared__ int child[THREADS3 * 4];
 
+    register real mom[order * 2 - 1];
+    register real cmom[order * 2 - 1];
+    register real2 momh[order]; // (order-1) !!!
+    register real2 cen, dr;
+
+    register int m, cm;
+
+    __shared__ int child[THREADS3 * 4];
 
     bottom = bottomd;
     inc = blockDim.x * gridDim.x;
@@ -586,94 +546,58 @@ void SummarizationKernel(const int nnodesd, const int nbodiesd, volatile int* __
                 if (i == 4) {
                     // all children are ready
                     cm = 0;
-                    cg = 0;
                     cnt = 0;
-#ifdef USE_DIP
-                    cen.x = posd[k].x;
-                    cen.y = posd[k].y;
-                    cd.x = cd.y = 0;
-#ifdef USE_QUA
-                    cq.x = cq.y = 0;
-#ifdef USE_OCT
-                    co.x = co.y = 0;
-#ifdef USE_HEX
-                    chex.x = chex.y = 0;
-#endif
-#endif
-#endif
-#endif
+
+                    for(int s = 0; s < (order * 2 - 1); ++s)
+                       cmom[s] = 0;
+                    
+                    if(order > 1)
+                    {
+                        cen.x = posd[k].x;
+                        cen.y = posd[k].y;
+                    }
+
                     for (i = 0; i < 4; i++) {
                         //ch = childd[k * 4 + i];
                         ch = child[i * THREADS3 + threadIdx.x];
                         if (ch >= 0) {
-                            g = momd[ch].gam;
-#ifdef USE_DIP
-                            dr.x = posd[ch].x - cen.x; dr.y = posd[ch].y - cen.y;
-                            d.x = momd[ch].dip.x; d.y = momd[ch].dip.y;
-#ifdef USE_QUA
+                            for(int s = 0; s < (order * 2 - 1); ++s)
+                                mom[s] = momsNew[ch*(order * 2 - 1) + s];
 
-                            q.x = momd[ch].qua.x; q.y = momd[ch].qua.y;
-#ifdef USE_OCT
+                            if (order > 1)
+                                dr.x = posd[ch].x - cen.x; dr.y = posd[ch].y - cen.y;
 
-                            o.x = momd[ch].oct.x; o.y = momd[ch].oct.y;
-#ifdef USE_HEX
-
-                            h.x = momd[ch].hex.x; h.y = momd[ch].hex.y;
-#endif
-#endif
-#endif
-#endif
                             m = massd[ch];
 
                             cnt += (ch >= nbodiesd) ? countd[ch] : 1;
 
-                            // add child's contribution                                                        
-                            cg += g;
-#ifdef USE_DIP
-                            mh = g * dr;
-                            cd += d + mh;
-#ifdef USE_QUA
-                            mh = multz(mh, dr);
-                            dh = multz(d, dr);
-                            cq += q + 2 * dh + mh;
-#ifdef USE_OCT
-                            mh = multz(mh, dr);
-                            dh = multz(dh, dr);
-                            qh = multz(q, dr);
-                            co += o + 3 * qh + 3 * dh + mh;
-#ifdef USE_HEX
-                            mh = multz(mh, dr);
-                            dh = multz(dh, dr);
-                            qh = multz(qh, dr);
-                            oh = multz(o, dr);
-                            chex += h + 4 * oh + 6 * qh + 4 * dh + mh;
-#endif
-#endif
-#endif
-#endif
+                            // add child's contribution                               
+                            cmom[0] += mom[0];                            
+                       
+                            for(int p = 1; p < 2 * (order - 1); p+=2)
+                            {
+                                cmom[p + 0] += mom[p + 0];
+                                cmom[p + 1] += mom[p + 1];
+                                 
+                                for(int q = 0; q < (p - 1) / 2; ++q)
+                                    momh[q] = multz(momh[q], dr);  
+                                
+                                momh[(int)(p - 1) / 2] = (p == 1) ? (mom[0] * dr) : multz(mom[p-2], mom[p-1], dr);                               
 
+                                for(int q = 0; q < (p + 1) / 2; ++q)
+                                    {
+                                        cmom[p + 0] += cftl[((p+1)/2) * order + q] * momh[q].x;
+                                        cmom[p + 1] += cftl[((p+1)/2) * order + q] * momh[q].y;                                        
+                                    }                                
+                            }
+                            
                             cm += m;
                         }
                     }
                     countd[k] = cnt;
 
-                    momd[k].gam = cg;
-#ifdef USE_DIP
-                    momd[k].dip.x = cd.x;
-                    momd[k].dip.y = cd.y;
-#ifdef USE_QUA
-                    momd[k].qua.x = cq.x;
-                    momd[k].qua.y = cq.y;
-#ifdef USE_OCT
-                    momd[k].oct.x = co.x;
-                    momd[k].oct.y = co.y;
-#ifdef USE_HEX
-                    momd[k].hex.x = chex.x;
-                    momd[k].hex.y = chex.y;
-#endif
-#endif
-#endif
-#endif
+                    for(int s = 0; s < (order * 2 - 1); ++s)
+                        momsNew[k*(order * 2 - 1) + s] = cmom[s];  
 
                     __threadfence();  // make sure data are visible before setting mass
 
@@ -720,96 +644,63 @@ void SummarizationKernel(const int nnodesd, const int nbodiesd, volatile int* __
 
             if (j == 0) {
                 // all children are ready
-                cg = 0;
+                
                 cm = 0;
-#ifdef USE_DIP
-                cen.x = posd[k].x;
-                cen.y = posd[k].y;
-                cd.x = cd.y = 0;
-#ifdef USE_QUA
-                cq.x = cq.y = 0;
-#ifdef USE_OCT
-                co.x = co.y = 0;
-#ifdef USE_HEX
-                chex.x = chex.y = 0;
-#endif
-#endif
-#endif
-#endif
+                
+                for(int s = 0; s < (order * 2 - 1); ++s)
+                    cmom[s] = 0;
+                
+                if(order > 1)
+                {
+                    cen.x = posd[k].x;
+                    cen.y = posd[k].y; 
+                }
+
 
                 cnt = 0;
                 for (i = 0; i < 4; i++) {
                     //ch = childd[k * 4 + i];
                     ch = child[i * THREADS3 + threadIdx.x];
 
-                    if (ch >= 0) {
-                        g = momd[ch].gam;
-#ifdef USE_DIP
-                        dr.x = posd[ch].x - cen.x; dr.y = posd[ch].y - cen.y;
-                        d.x = momd[ch].dip.x; d.y = momd[ch].dip.y;
-#ifdef USE_QUA
+                    if (ch >= 0) {                        
+                        for(int s = 0; s < (order * 2 - 1); ++s)
+                            mom[s] = momsNew[ch*(order * 2 - 1) + s];
 
-                        q.x = momd[ch].qua.x; q.y = momd[ch].qua.y;
-#ifdef USE_OCT
-
-                        o.x = momd[ch].oct.x; o.y = momd[ch].oct.y;
-#ifdef USE_HEX
-
-                        h.x = momd[ch].hex.x; h.y = momd[ch].hex.y;
-#endif
-#endif
-#endif
-#endif
+                        if (order > 1)
+                            dr.x = posd[ch].x - cen.x; dr.y = posd[ch].y - cen.y;
                         m = massd[ch];
 
                         cnt += (ch >= nbodiesd) ? countd[ch] : 1;
 
-                        // add child's contribution                                                        
-                        cg += g;
-#ifdef USE_DIP
-                        mh = g * dr;
-                        cd += d + mh;
-#ifdef USE_QUA
-                        mh = multz(mh, dr);
-                        dh = multz(d, dr);
-                        cq += q + 2 * dh + mh;
-#ifdef USE_OCT
-                        mh = multz(mh, dr);
-                        dh = multz(dh, dr);
-                        qh = multz(q, dr);
-                        co += o + 3 * qh + 3 * dh + mh;
-#ifdef USE_HEX
-                        mh = multz(mh, dr);
-                        dh = multz(dh, dr);
-                        qh = multz(qh, dr);
-                        oh = multz(o, dr);
-                        chex += h + 4 * oh + 6 * qh + 4 * dh + mh;
-#endif
-#endif
-#endif
-#endif
+                        // add child's contribution    
+
+                        cmom[0] += mom[0];                            
+                       
+                        for(int p = 1; p < 2 * (order - 1); p+=2)
+                        {
+                            cmom[p + 0] += mom[p + 0];
+                            cmom[p + 1] += mom[p + 1];
+                                 
+                            for(int q = 0; q < (p - 1) / 2; ++q)
+                                momh[q] = multz(momh[q], dr);  
+                                
+                            momh[(int)(p - 1) / 2] = (p == 1) ? (mom[0] * dr) : multz(mom[p-2], mom[p-1], dr);                               
+
+                            for(int q = 0; q < (p + 1) / 2; ++q)
+                                {
+                                    cmom[p + 0] += cftl[((p+1)/2) * order + q] * momh[q].x;
+                                    cmom[p + 1] += cftl[((p+1)/2) * order + q] * momh[q].y;                                        
+                                }                                
+                        }
+                            
                         cm += m;
                     }
                 }
                 countd[k] = cnt;
 
-                momd[k].gam = cg;
-#ifdef USE_DIP
-                momd[k].dip.x = cd.x;
-                momd[k].dip.y = cd.y;
-#ifdef USE_QUA
-                momd[k].qua.x = cq.x;
-                momd[k].qua.y = cq.y;
-#ifdef USE_OCT
-                momd[k].oct.x = co.x;
-                momd[k].oct.y = co.y;
-#ifdef USE_HEX
-                momd[k].hex.x = chex.x;
-                momd[k].hex.y = chex.y;
-#endif
-#endif
-#endif
-#endif
+                for(int s = 0; s < (order * 2 - 1); ++s)
+                    momsNew[k*(order * 2 - 1) + s] = cmom[s];                
+
                 flag = 1;
             }
         }
@@ -885,25 +776,27 @@ void SortKernel(int nnodesd, int nbodiesd, volatile int* __restrict sortd, const
 __global__
 __launch_bounds__(THREADS5, FACTOR5)
 void ForceCalculationKernel(int nnodesd, int nbodiesd, int* __restrict errd, real itolsqd, real epssqd, const int* __restrict sortd,
-    const int* __restrict childd, const moms* __restrict momd,
+    const int* __restrict childd, const real* __restrict momsNew,
     const real2* __restrict posd, volatile real2* __restrict veld)
 
 {
     register int i, j, k, n, depth, base, sbase, diff, pd, nd;
     register real2 p, v, dr;
     register real r2;
-    register moms mom;
-#ifdef USE_DIP
+    register real mom[(order * 2 - 1)];
+    //register const real* mom;
     register real2 th;
-#endif
+
     __shared__ volatile int pos[MAXDEPTH * THREADS5 / WARPSIZE], node[MAXDEPTH * THREADS5 / WARPSIZE];
     __shared__ real dq[MAXDEPTH * THREADS5 / WARPSIZE];
 
-    if (0 == threadIdx.x) {
+    if (0 == threadIdx.x) 
+    {
         r2 = radiusd * 2;
         // precompute values that depend only on tree level
         dq[0] = r2 * r2;
-        for (i = 1; i < maxdepthd; i++) {
+        for (i = 1; i < maxdepthd; ++i) 
+        {
             dq[i] = dq[i - 1] / 4;
             //dq[i - 1];// += epssqd;
         }
@@ -915,21 +808,24 @@ void ForceCalculationKernel(int nnodesd, int nbodiesd, int* __restrict errd, rea
     }
     __syncthreads();
 
-    if (maxdepthd <= MAXDEPTH) {
+    if (maxdepthd <= MAXDEPTH) 
+    {
         // figure out first thread in each warp (lane 0)
         base = threadIdx.x / WARPSIZE;
         sbase = base * WARPSIZE;
         j = base * MAXDEPTH;
         diff = threadIdx.x - sbase;
         // make multiple copies to avoid index calculations later
-        if (diff < MAXDEPTH) {
+        if (diff < MAXDEPTH) 
+        {
             dq[diff + j] = dq[diff];
         }
         __syncthreads();
         __threadfence_block();
 
         // iterate over all bodies assigned to thread
-        for (k = threadIdx.x + blockIdx.x * blockDim.x; k < nbodiesd; k += blockDim.x * gridDim.x) {
+        for (k = threadIdx.x + blockIdx.x * blockDim.x; k < nbodiesd; k += blockDim.x * gridDim.x) 
+        {
             i = sortd[k];  // get permuted/sorted index
             // cache position info
             p.x = posd[i].x;
@@ -940,53 +836,73 @@ void ForceCalculationKernel(int nnodesd, int nbodiesd, int* __restrict errd, rea
 
             // initialize iteration stack, i.e., push root node onto stack
             depth = j;
-            if (sbase == threadIdx.x) {
+            if (sbase == threadIdx.x) 
+            {
                 pos[j] = 0;
                 node[j] = nnodesd * 4;
             }
 
-            do {
+
+
+            do 
+            {
                 // stack is not empty
                 pd = pos[depth];
                 nd = node[depth];
-                while (pd < 4) {
+
+                
+
+                while (pd < 4) 
+                {
                     // node on top of stack has more children to process
                     n = childd[nd + pd];  // load child pointer
-                    pd++;
+                    ++pd;
 
-                    if (n >= 0) {
-                        dr.x = p.x - posd[n].x;
-                        dr.y = p.y - posd[n].y;
-                        mom = momd[n];
+                    if (n >= 0) 
+                    {
+                        dr = p - posd[n];                        
 
-                        r2 = dr.x * dr.x + dr.y * dr.y;   // compute distance squared (plus softening)
-                        if ((n < nbodiesd) || __all_sync(0xffffffff, (dq[depth] + epssqd) * itolsqd < r2)) {  // check if all threads agree that cell is far enough away (or is a body)
-                            real f = mom.gam / realmax(r2, epssqd);
+                        for (int s = 0; s < (order * 2 - 1); ++s)
+                           mom[s] = momsNew[n * (order * 2 - 1) + s];
+                        
+                        r2 = (dr.x * dr.x + dr.y * dr.y);   // compute distance squared (plus softening)
+                        
+                        if ((n < nbodiesd) || __all_sync(0xffffffff, (dq[depth] + epssqd) * itolsqd < r2)) 
+                        {  // check if all threads agree that cell is far enough away (or is a body)
+                            
+                            real f = mom[0] / realmax(r2, epssqd);                           
 
                             v += f * dr;
-#ifdef USE_DIP 
-                            real2 cftr = ((r2 > 0) ? 1 / r2 : 0) * dr;
+                            
+                            if(order > 1)
+                            {
+                                real2 cftr = (r2 ? (1/r2) : 0) * dr;                                
+                                
+                                //s=1:
+                                th = multz(cftr, cftr);
+                                v += multzA(th, mom[1], mom[2]);
 
-                            th = multz(cftr, cftr);
-                            v += multzA(th, mom.dip);
-#ifdef USE_QUA 
-                            th = multz(th, cftr);
-                            v += multzA(th, mom.qua);
-#ifdef USE_OCT 
-                            th = multz(th, cftr);
-                            v += multzA(th, mom.oct);
-#ifdef USE_HEX 
-                            th = multz(th, cftr);
-                            v += multzA(th, mom.hex);
+                                for (int s = 3; s < (order * 2 - 1); s += 2)
+                                {
+                                    th = multz(th, cftr);
+#ifdef CALCinFLOAT                                    
+				    if (isinf(th.x) || isinf(th.y))
+                                    {
+                                        //printf("s = %d\n", s);
+                                        break;
+                                    }
 #endif
-#endif
-#endif
-#endif
+                                    v += multzA(th, mom[s], mom[s + 1]);
+                                }
 
+                            }
+                            
                         }
-                        else {
+                        else 
+                        {
                             // push cell onto stack
-                            if (sbase == threadIdx.x) {  // maybe don't push and inc if last child
+                            if (sbase == threadIdx.x) 
+                            {  // maybe don't push and inc if last child
                                 pos[depth] = pd;
                                 node[depth] = nd;
                             }
@@ -995,12 +911,14 @@ void ForceCalculationKernel(int nnodesd, int nbodiesd, int* __restrict errd, rea
                             nd = n * 4;
                         }
                     }
-                    else {
+                    else 
+                    {
                         pd = 4;  // early out because all remaining children are also zero
                     }
                 }
                 depth--;  // done with this level
-            } while (depth >= j);
+            } 
+            while (depth >= j);
 
 
             // update velocity
@@ -1022,11 +940,10 @@ void ForceDirectCalculationKernel(int nnodesd, int nbodiesd,
     int* __restrict errd,
     real itolsqd, real epssqd,
     const int* __restrict sortd, const int* __restrict childd,
-    const moms* __restrict momd,
+    const real * __restrict momsNew,
     const real2* __restrict posd,
     volatile real2* __restrict veld)
 {
-    //*
     __shared__ real2 shr[BLOCKD];
     __shared__ real shg[BLOCKD];
 
@@ -1048,7 +965,7 @@ void ForceDirectCalculationKernel(int nnodesd, int nbodiesd,
     {
         shr[threadIdx.x].x = posd[(j + threadIdx.x)].x;
         shr[threadIdx.x].y = posd[(j + threadIdx.x)].y;
-        shg[threadIdx.x] = momd[(j + threadIdx.x)].gam;
+        shg[threadIdx.x] = momsNew[(j + threadIdx.x)*(order * 2 -1)];//momd[(j + threadIdx.x)].gam;
 
         __syncthreads();
 
@@ -1158,7 +1075,8 @@ void KernelsOptimization()
         int nnodesd, int nbodiesd,
         volatile int* __restrict startd, volatile int* __restrict childd,
         volatile int* __restrict massd,
-        volatile moms * __restrict momd,
+        //volatile moms * __restrict momd,
+        volatile real * __restrict momsNew,
         volatile realPoint* __restrict posd,
         volatile realPoint* __restrict maxrd, volatile realPoint* __restrict minrd)
     {
@@ -1170,7 +1088,7 @@ void KernelsOptimization()
         cudaEventCreate(&start);  cudaEventCreate(&stop);
         cudaEventRecord(start, 0);
 
-        BoundingBoxKernel<<<blocks * FACTOR1, THREADS1>>> (nnodesd, nbodiesd, startd, childd, massd, momd, (real2*)posd, (real2*)maxrd, (real2*)minrd);
+        BoundingBoxKernel<<<blocks * FACTOR1, THREADS1>>> (nnodesd, nbodiesd, startd, childd, massd, momsNew, (real2*)posd, (real2*)maxrd, (real2*)minrd);
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
 
         CudaTest("kernel 1 launch failed");
@@ -1231,7 +1149,8 @@ void KernelsOptimization()
         volatile int* __restrict startd,
         volatile int* __restrict massd,
         const real* __restrict gamd,
-        volatile moms* __restrict momd)
+        /*volatile moms* __restrict momd*/
+        volatile real* __restrict momsNew)
     {
         //fprintf(stderr, "CxKernel\n");
         cudaEvent_t start, stop;
@@ -1241,7 +1160,7 @@ void KernelsOptimization()
         cudaEventRecord(start, 0);
 
         ClearKernel2 << <blocks * 1, 1024 >> > (nnodesd, startd, massd);
-        ClearKernel3 << <blocks * 1, 1024 >> > (nnodesd, nbodiesd, gamd, momd);
+        ClearKernel3 << <blocks * 1, 1024 >> > (nnodesd, nbodiesd, gamd, momsNew);
 
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
 
@@ -1260,8 +1179,10 @@ void KernelsOptimization()
         const int nnodesd, const int nbodiesd,
         volatile int* __restrict countd, const int* __restrict childd,
         volatile int* __restrict massd,
-        volatile moms * __restrict momd,
-        volatile realPoint* __restrict posd)
+         /*volatile moms* __restrict momd*/
+        volatile real* __restrict momsNew,
+        volatile realPoint* __restrict posd,
+        const int * __restrict cftl)
     {
         //fprintf(stderr, "SKKernel\n");
 
@@ -1271,7 +1192,7 @@ void KernelsOptimization()
         cudaEventCreate(&start);  cudaEventCreate(&stop);
         cudaEventRecord(start, 0);
 
-        SummarizationKernel << <blocks * FACTOR3, THREADS3 >> > (nnodesd, nbodiesd, countd, childd, massd, momd, (real2*)posd);
+        SummarizationKernel << <blocks * FACTOR3, THREADS3 >> > (nnodesd, nbodiesd, countd, childd, massd, momsNew, (real2*)posd, cftl);
         
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
         
@@ -1319,7 +1240,8 @@ void KernelsOptimization()
         int* __restrict errd,
         real itolsqd, real epssqd,
         const int* __restrict sortd, const int* __restrict childd,
-        const moms* __restrict momd,
+        /*const moms* __restrict momd*/
+        const real* __restrict momsNew,
         const realPoint* __restrict posd,
         volatile realPoint* __restrict veld)
     {
@@ -1331,7 +1253,7 @@ void KernelsOptimization()
         cudaEventCreate(&start);  cudaEventCreate(&stop);
         cudaEventRecord(start, 0);
         
-        ForceCalculationKernel << <blocks * FACTOR5, THREADS5 >> > (nnodesd, nbodiesd, errd, itolsqd, epssqd, sortd, childd, momd, (real2*)posd, (real2*)veld);
+        ForceCalculationKernel << <blocks * FACTOR5, THREADS5 >> > (nnodesd, nbodiesd, errd, itolsqd, epssqd, sortd, childd, momsNew, (real2*)posd, (real2*)veld);
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
         
         CudaTest("kernel 5 launch failed");
@@ -1350,7 +1272,8 @@ void KernelsOptimization()
         int* __restrict errd,
         real itolsqd, real epssqd,
         const int* __restrict sortd, const int* __restrict childd,
-        const moms * __restrict momd,
+        /*const moms * __restrict momd,*/
+        const real * __restrict momsNew,
         const realPoint * __restrict posd,
         volatile realPoint* __restrict veld)
     {
@@ -1362,7 +1285,7 @@ void KernelsOptimization()
         cudaEventCreate(&startD);  cudaEventCreate(&stopD);
         cudaEventRecord(startD, 0);
         
-        ForceDirectCalculationKernel<<<(nbodiesd + BLOCKD - 1) / BLOCKD, BLOCKD>>> (nnodesd, nbodiesd, errd, itolsqd, epssqd, sortd, childd, momd, (real2*)posd, (real2*)veld);
+        ForceDirectCalculationKernel<<<(nbodiesd + BLOCKD - 1) / BLOCKD, BLOCKD>>> (nnodesd, nbodiesd, errd, itolsqd, epssqd, sortd, childd, momsNew, (real2*)posd, (real2*)veld);
         cudaEventRecord(stopD, 0);  cudaEventSynchronize(stopD);  cudaEventElapsedTime(&timeD, startD, stopD);
         
         CudaTest("kernel direct launch failed");

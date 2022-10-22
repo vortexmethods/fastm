@@ -198,7 +198,7 @@ namespace BH
 		void fillMortonLowCellsA();
 
 		//Расчет мультипольных моментов всех ячеек дерева
-		void calculateMortonTreeParams(int cell = 0);
+		void calculateMortonTreeParams(int cell = 0, int level = 0);
 		
 		//Расчет коэффицентов локального разложения для нижних ячеек 
 		//calcCloseTrees --- признак заполнения списка ближных ячеек (нижнего уровня) к ячейке lowCell

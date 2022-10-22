@@ -141,8 +141,8 @@ namespace BH
 		//tC += omp_get_wtime();
 		
 		//auto tD = -omp_get_wtime();
-		//tree->fillMortonLowCells();
-		tree->fillMortonLowCellsA();
+		tree->fillMortonLowCells();
+		//tree->fillMortonLowCellsA();
 		//tD += omp_get_wtime();
 
 		double t2 = omp_get_wtime();
@@ -180,8 +180,8 @@ namespace BH
 		ClearTimestat();
 		double tTreeParamsStart = omp_get_wtime();
 	
-		//omp_set_nested(1);
-		omp_set_max_active_levels(maxLevelOmp + 1);
+		omp_set_nested(1);
+		//omp_set_max_active_levels(maxLevelOmp + 1);
 
 		tree->calculateMortonTreeParams();
 		double tTreeParamsFinish = omp_get_wtime();

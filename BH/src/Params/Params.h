@@ -44,7 +44,7 @@ namespace BH
 {
 
 	// радиус вихревого элемента
-	static const double eps = 1e-3;
+	static const double eps = 1e-4;
 
 	// Имя файла с задачей
 	static const std::string nameFile = "../../test/test2000000.txt";
@@ -57,20 +57,20 @@ namespace BH
 	//  order = 2: монополь (0+1) + диполь (0) + квадруполь (0)
 	//  order = 3: монополь (0+1+2) + диполь (0+1) + квадруполь (0) + октуполь (0)
 	//  order = 4: монополь (0+1+2+3) + диполь (0+1+2) + квадруполь (0+1) + октуполь (0) + гексадекаполь (0)
-	static const int order = 6;
+	static const int order = 9;
  // 1 - dipole
 
 	/// Максимальное количество уровней дерева
 	static const int NumOfLevels = 17;
 
 	/// Параметр точности 
-	static const double theta = 1.0;
+	static const double theta = 1.26;
 
 	/// Сравнение с прямым методом
 	static const bool compare = true;
 
 	/// Номер уровня дерева, до которого генерируются OMP нити
-	static const int maxLevelOmp = 4;
+	static const int maxLevelOmp = 2; // 2;
 
 	/// Число повторных запусков кода
 	static const int runs = 10;
@@ -80,7 +80,7 @@ namespace BH
 
 
 	//24
-	const int codeLength = 10;
+	const int codeLength = 14;
 	const int twoPowCodeLength = (1 << codeLength);
 
 

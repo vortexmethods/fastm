@@ -371,7 +371,7 @@ namespace BH
 
 
 	/// Вычисление параметров дерева (циркуляций и высших моментов)
-	void MortonTree::calculateMortonTreeParams(int cell)
+	void MortonTree::calculateMortonTreeParams(int cell, int level)
 	{
 		//if (cell < 0 || cell >= mortonTree.size())
 		//	std::cout << "cell error, cell = " << cell << std::endl;
@@ -380,11 +380,11 @@ namespace BH
 		//std::cout << "cell = " << cell << (mortonTree[cell].particle ? " particle" : "") << std::endl;
 		if (!cl.particle)
 		{
-#pragma omp parallel default(none) shared(cl) num_threads(2) 
-			{				
+#pragma omp parallel default(none) shared(cl, level) num_threads(2) if (level < maxLevelOmp + 1)
+			{				 
 #pragma omp for 
 				for (int s = 0; s < 2; ++s)
-					calculateMortonTreeParams(cl.child[s]);
+					calculateMortonTreeParams(cl.child[s], level+1);
 
 #pragma omp single
 				{

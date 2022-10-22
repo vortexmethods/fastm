@@ -1,11 +1,11 @@
 /*--------------------------------*- BHcu -*-----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.0    |
-| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2021/08/05     |
+| #####   ##  ##                |                            | Version 1.1    |
+| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2022/08/28     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina                   |
+| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
 | Copyright (C) 2013, Texas State University-San Marcos. All rights reserved. |
 *-----------------------------------------------------------------------------*
 | File name: operations.cuh                                                   |
@@ -31,8 +31,9 @@
 \brief Вспомогательные операции
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
-\version 1.0
-\date 05 августа 2021 г.
+\author Колганова Александра Олеговна
+\version 1.1
+\date 28 августа 2022 г.
 */
 
 #ifndef OPERATIONS_H_
@@ -56,11 +57,26 @@ namespace BHcu
 		return res;
 	}
 
+	__device__ __forceinline real2 multz(real ax, real ay, real2 b)
+	{
+		real2 res;
+		res.x = ax * b.x - ay * b.y;
+		res.y = ax * b.y + ay * b.x;
+		return res;
+	}
 	__device__ __forceinline real2 multzA(real2 a, real2 b)
 	{
 		real2 res;
 		res.x = a.x * b.x + a.y * b.y;
 		res.y = a.y * b.x - a.x * b.y;
+		return res;
+	}	
+	
+	__device__ __forceinline real2 multzA(real2 a, real bx, real by)
+	{
+		real2 res;
+		res.x = a.x * bx + a.y * by;
+		res.y = a.y * bx - a.x * by;
 		return res;
 	}
 
