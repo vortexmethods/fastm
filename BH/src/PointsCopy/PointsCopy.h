@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.1    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
+|        #####   ##  ##         |                            | Version 1.2    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.1
-\date 24 августа 2022 г.
+\version 1.2
+\date 22 октября 2022 г.
 */
 
 
@@ -40,7 +40,7 @@
 #define POINTSCOPY_H_
 
 #include "Vortex2D.h"
-
+#include "Params.h"
 #include "omp.h"
 
 namespace BH
@@ -50,28 +50,42 @@ namespace BH
 	{
 	public:
 		Point2D veloCopy, veloCopyLin;
-		std::vector<Point2D> i00, i01, i10, i11;
-
+		double velTau, velTauLin;
+		std::vector<Point2D> i00;
 		Point2D a, c; //для предобуславливателя в Т0
+
+#ifdef linScheme
+		std::vector<Point2D> i01, i10, i11;
 		Point2D a1, c1; //для предобуславливателя в Т1
+		double gamLin;
+#endif
 
 		Point2D panBegin, panEnd;
+		std::vector<Point2D> Mpan;
 
-		Point2D dipP, quaP, octP, hexP;
+#ifdef asympScheme
+		std::vector<Point2D> MpanAs;
+#endif
+
+
 
 		Point2D tau;
 		double len;
-		double gamLin;
 
 		PointsCopy(const Vortex2D& vtx_) :
-			Vortex2D(vtx_), veloCopy({ 0.0, 0.0 }), veloCopyLin({ 0.0, 0.0 })
+			Vortex2D(vtx_), veloCopy({ 0.0, 0.0 }), veloCopyLin({ 0.0, 0.0 }), 
+			a({ 0.0, 0.0 }), c({ 0.0, 0.0 })
 		{};
 
 		PointsCopy() :
-			Vortex2D({ 0.0, 0.0 }, 0.0) {};
+			Vortex2D({ 0.0, 0.0 }, 0.0),
+			a({ 0.0, 0.0 }), c({ 0.0, 0.0 }) 
+		{};
 
 		PointsCopy(const Point2D& r) :
-			Vortex2D(r, 0.0) {};
+			Vortex2D(r, 0.0), 
+			a({ 0.0, 0.0 }), c({ 0.0, 0.0 }) 
+		{};
 
 		~PointsCopy() {};
 	};

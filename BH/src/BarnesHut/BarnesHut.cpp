@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.1    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
+|        #####   ##  ##         |                            | Version 1.2    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -31,197 +31,250 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.1
-\date 24 августа 2022 г.
+\version 1.2
+\date 22 октября 2022 г.
 */
 
 #include <fstream>
 
 #include "omp.h"
-
 #include "BarnesHut.h"
 
 namespace BH
 {
-
-	/// Конструктор	для решения интегрального уравнения
-	BarnesHut::BarnesHut(const std::vector<Vortex2D>& points, const std::vector<Point2D>& panPos)
+	void BarnesHut::CreatePan(const Vortex2D& panCenter, const Point2D& panBegin, const Point2D& panEnd, double gamLin)
 	{
-		int n = (int)points.size();
-		pointsCopy.reserve(n);
-		double len2;
-
-		for (int i = 0; i < n; ++i)
-		{
-			pointsCopy.emplace_back(points[i]);
-
-			Point2D& tt = pointsCopy[i].tau;
-
-			pointsCopy[i].gamLin = 0.0;
-			pointsCopy[i].panBegin = panPos[i];
-
-			if (i != n - 1)
-			{
-				pointsCopy[i].panEnd = panPos[i + 1];
-				tt = panPos[i + 1] - panPos[i];
-			}
-			else
-			{
-				pointsCopy[i].panEnd = panPos[0];
-				tt = panPos[0] - panPos[i];
-			}
-			const double& len = pointsCopy[i].len = tt.length();
-			tt /= len;
+		PointsCopy panel(panCenter);
+		
 #ifdef linScheme
-			pointsCopy[i].dipP = (len / 12.0) * tt;
-#ifdef calcOp
-			op += 5;
+		panel.gamLin = gamLin;
 #endif
-#endif
-			if (order >= 2)
-			{
-				len2 = len * len;
-				Point2D tau2 = multz(tt, tt);
-				pointsCopy[i].quaP = (len2 / 24.0) * tau2;
-#ifdef calcOp
-				op += 4;
-#endif
-				if (order >= 3)
-				{
-					Point2D tau3 = multz(tau2, tt);
-#ifdef linScheme
-					pointsCopy[i].octP = (len * len2 / 320.0) * tau3;
-#ifdef calcOp
-					op += 4;
-#endif
-#endif
-					if (order >= 4)
-					{
-						pointsCopy[i].hexP = (len2 * len2 / 640.0) * multz(tau3, tt);
-#ifdef calcOp
-						op += 4;
-#endif
-					}
-				}
-			}
-		}
-	}//BarnesHut(...)
+		panel.panBegin = panBegin;
+		panel.panEnd = panEnd;
+		
+		panel.tau = panEnd - panBegin;
+		panel.len = panel.tau.normalize();
+						
+		auto& moms = panel.Mpan;
+		moms.resize(order + 1, { 0.0, 0.0 });
 
-
-	//Конструктор для вычисления скоростей частиц
-	BarnesHut::BarnesHut(const std::vector<Vortex2D>& points)
-	{
-		pointsCopy.reserve(points.size());
-		for (int i = 0; i < (int)points.size(); ++i)
+		Point2D rcur, rd2Pow, rd2;
+		rd2 = 0.5 * (panEnd - panBegin);
+		rcur = rd2Pow = multz(rd2, rd2);
+		
+		moms[0] = { 1.0, 0.0 };
+		for (int k = 2; k <= order; k += 2)
 		{
-			pointsCopy.emplace_back(points[i]);
-		}
+			moms[k] = (1.0 / (k + 1)) * rcur;			
+			rcur = multz(rcur, rd2Pow);
+		}		
 
-		
-	}//BarnesHut(...)
+#ifdef linScheme
+		rcur = rd2;
+		for (int k = 1; k <= order; k += 2)
+		{
+			moms[k] = (0.5 / (k + 2)) * rcur;
+			rcur = multz(rcur, rd2Pow);
+		}		
+#endif
 
-
-	//Построение дерева
-	void BarnesHut::BuildTree(double& time)
-	{
-		tree = std::make_unique<MortonTree>(pointsCopy);
-
-		double t1 = omp_get_wtime();
-
-		//auto tA = -omp_get_wtime();
-		tree->makeRootMortonTree();
-		//tA += omp_get_wtime();
-
-		//auto tB = -omp_get_wtime();
-		tree->buildMortonInternalTree();
-		//tB += omp_get_wtime();
-		
-		//auto tC = -omp_get_wtime();
-		tree->buildMortonParticlesTree();
-		//tC += omp_get_wtime();
-		
-		//auto tD = -omp_get_wtime();
-		tree->fillMortonLowCells();
-		//tree->fillMortonLowCellsA();
-		//tD += omp_get_wtime();
-
-		double t2 = omp_get_wtime();
-		//std::cout << "CreateTree time " << t2 - t1 << std::endl;
-		time += t2 - t1;
-
-		//std::cout << tA << " " << tB << " " << tC << " " << tD << std::endl;
-
+		pointsCopyPan.emplace_back(panel);
 	}
 
+
+	void BarnesHut::ConvertToAsypmPanel(PointsCopy& panel, double mu, bool infinityAtBegin)
+	{
+#ifdef asympScheme
+		auto& moms = panel.MpanAs;
+		moms.resize(order + 1, { 0.0, 0.0 });
+
+		double lhalfnum = 1.0;
+
+		for (int num = 1; num <= order; ++num)
+		{
+			lhalfnum *= (0.5 * panel.len);
+			double sum = 0.0;
+			for (int k = 0; k <= num; ++k)
+			{
+				double prd = 1.0;
+				for (int j = 1; j <= k; ++j)
+					prd *= 1.0 - (num + 1.0) / j;
+				sum += (double)(1 << k) / (mu - 1.0 - k) * prd;
+			}
+
+			if (!(num & 1))
+				sum += 1.0 / ((1.0 + num) * (1.0 - mu));
+			
+			if (!(infinityAtBegin && (num & 1)))
+				sum = -sum;
+
+			sum *= lhalfnum;
+
+			double phi = num * atan2(panel.tau[1], panel.tau[0]);
+
+			moms[num] = sum * Point2D{ cos(phi),sin(phi) };
+
+			if (num & 1)
+				panel.Mpan[num].toZero();
+
+			//std::cout << num << " " << moms[num] << std::endl;
+		}
+#endif
+	}
+
+
+	// Конструктор	для решения интегрального уравнения вместе с правой частью
+	BarnesHut::BarnesHut(const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos)
+	{
+		// заполнение массива для панелей
+		int n = (int)pointsPan.size();
+		pointsCopyPan.reserve(n);
+		
+		for (int i = 0; i < n; ++i)		
+			CreatePan(pointsPan[i], panPos[i], panPos[(i + 1) % n], 0.0);
+
+#ifdef linScheme
+#ifdef asympScheme
+		for (int t = 0; t < nAngPoints; ++t)
+		{
+			ConvertToAsypmPanel(pointsCopyPan[KK[t]], mu[t], true);		
+			ConvertToAsypmPanel(pointsCopyPan[KKm[t]], mu[t], false);
+		}
+#endif
+#endif
+		// заполнение массива для вихрей
+		pointsCopyVrt.insert(pointsCopyVrt.end(), pointsVrt.begin(), pointsVrt.end());		
+	}//BarnesHut(...)
+
+
+
+	//Конструктор для вычисления скоростей частиц pointsVrt, влияющих самих на себя
+	BarnesHut::BarnesHut(const std::vector<Vortex2D>& pointsVrt)
+	{
+		pointsCopyVrt.insert(pointsCopyVrt.end(), pointsVrt.begin(), pointsVrt.end());
+	}//BarnesHut(...)
+
+
+
+	//Конструктор для вычисления скоростей частиц pointsVР, вызванных влиянием pointsVrt
+	BarnesHut::BarnesHut(const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos, std::vector<double> sec, const std::vector<Vortex2D>& pointsVP)
+	{
+		// заполнение массива для панелей
+		int n = (int)pointsPan.size();
+		pointsCopyPan.reserve(n);
+
+		for (int i = 0; i < n; ++i)		
+		{
+#ifdef linScheme
+			double linComponent = sec[i];
+#else
+			double linComponent = 0.0;
+#endif
+			CreatePan(pointsPan[i], panPos[i], panPos[(i + 1) % n], linComponent);
+		}
+		
+#ifdef linScheme
+#ifdef asympScheme
+		for (int t = 0; t < nAngPoints; ++t)
+		{
+			ConvertToAsypmPanel(pointsCopyPan[KK[t]], mu[t], true);
+			ConvertToAsypmPanel(pointsCopyPan[KKm[t]], mu[t], false);
+		}
+#endif
+#endif
+		pointsCopyVrt.insert(pointsCopyVrt.end(), pointsVrt.begin(), pointsVrt.end());		
+		pointsCopyVP.insert(pointsCopyVP.end(), pointsVP.begin(), pointsVP.end());
+	}//BarnesHut(...)
+
+
+	//Построение одного дерева
+	void BarnesHut::BuildOneTree(std::unique_ptr<MortonTree>& tree, std::vector<PointsCopy>& pointsCopy, bool ifpan, double& time)
+	{
+		tree = std::make_unique<MortonTree>(pointsCopy, ifpan);
+
+		double t1 = omp_get_wtime();
+		tree->MakeRootMortonTree();
+		tree->BuildMortonInternalTree();
+		tree->BuildMortonParticlesTree();
+
+		// Один из двух вариантов заполнения нижних вершин
+		//tree->FillMortonLowCellsA(); // Рекурсивный
+		tree->FillMortonLowCells();  // Нерекурсивный
+
+		double t2 = omp_get_wtime();
+
+		time += t2-t1;
+	}
+
+
+	//Построение всех нужных деревьев на основе заданных точек pointsCopy  
+	void BarnesHut::BuildNecessaryTrees(double& time)
+	{
+#ifdef needTreeVrt
+		BuildOneTree(treeVrt, pointsCopyVrt, false, time); // дерево вихрей
+#endif
+
+#ifdef needTreePan
+		BuildOneTree(treePan, pointsCopyPan, true, time);  // дерево панелей
+#endif
+
+#ifdef needTreeVP
+		BuildOneTree(treeVP, pointsCopyVP, false, time);   
+#endif
+	}
+	
 	// Обновление циркуляций вихревых элементов (для решения СЛАУ)
 	void BarnesHut::UpdateGams(std::vector<double>& newGam)
 	{
-		int n = (int)pointsCopy.size();
+		int n = (int)pointsCopyPan.size();
 		for (size_t i = 0; i < n; ++i)
 		{
-			pointsCopy[i].g() = newGam[i];
-			pointsCopy[i].veloCopy.toZero();
+			pointsCopyPan[i].g() = newGam[i];
+			pointsCopyPan[i].veloCopy.toZero();
 #ifdef linScheme
-			pointsCopy[i].gamLin = newGam[i + n];
-			pointsCopy[i].veloCopyLin.toZero();
+			pointsCopyPan[i].gamLin = newGam[i + n];
+			pointsCopyPan[i].veloCopyLin.toZero();
 #endif
 		}
 	}
 
-	// Обнуление временной статистики
-	void BarnesHut::ClearTimestat()
-	{
-		
-	}
 
-	/// Расчет влияния точек result самих на себя
-	void BarnesHut::InfluenceComputation(std::vector<Point2D>& result, int type, double& timeParams, double& timeInfl)
+	// Расчет влияния вихрей на панели
+	void BarnesHut::RhsComputation(std::vector<Point2D>& result, double& timeParams, double& timeInfl)
 	{
-		ClearTimestat();
 		double tTreeParamsStart = omp_get_wtime();
-	
-		omp_set_nested(1);
-		//omp_set_max_active_levels(maxLevelOmp + 1);
 
-		tree->calculateMortonTreeParams();
-		double tTreeParamsFinish = omp_get_wtime();
+		//omp_set_nested(1);
 
-		timeParams += tTreeParamsFinish - tTreeParamsStart;
+		// Максимальное число уровней вложенности распараллеливания
+		omp_set_max_active_levels(maxLevelOmp + 1);
+
+		auto& treeContr = treePan;
+		auto& pointsCopy = pointsCopyPan;
 		
-		//std::cout << "CalculateTreeParams() = " << tTreeParamsFinish - tTreeParamsStart << std::endl;
-
+		treeVrt->CalculateMortonTreeParams(0, 0); 
+		double tTreeParamsFinish = omp_get_wtime();
+		timeParams += tTreeParamsFinish - tTreeParamsStart;
 		double tInflStart = omp_get_wtime();
+
+		std::cout << "size = " << (int)treeContr->mortonLowCells.size() << std::endl;
+
 
 
 #ifndef calcOp
 #pragma omp parallel for schedule(dynamic, 10)
 #endif
-		for (int i = 0; i < (int)tree->mortonLowCells.size(); ++i)
+		for (int i = 0; i < (int)treeContr->mortonLowCells.size(); ++i)
 		{
-			auto& lci = tree->mortonLowCells[i];
+			auto& lci = treeContr->mortonLowCells[i];
+			auto& lowCell = treeContr->mortonTree[lci];
 
-			auto& lowCell = tree->mortonTree[lci];
-			lowCell.E.toZero({ 0.0, 0.0 });;
-
-			//tree->CalcLocalCoeffToLowLevel(lowTree);
-			tree->calcLocalCoeffToLowLevel(lci, 0, true);
-
-			switch (type)
-			{
-			case 0:				
-				tree->calcVeloBiotSavart(lci);
-				break;
-			case 1:
-			//	lowTree->CalcInfluenceFromPanels();
-				break;
-			case 2:
-			//	lowTree->CalcInfluenceFromPanelsToPoints();
-				break;
-			default:
-				break;
-			}
-						
-			tree->calcVeloTaylorExpansion(lci);
+			lowCell.E.toZero({ 0.0, 0.0 });
+			
+			treeContr->CalcLocalCoeffToLowLevel(lci, treeVrt, 0, true);
+			treeContr->CalcVeloBiotSavart(lci, treeVrt);
+			treeContr->CalcVeloTaylorExpansion(lci);
+			treeContr->mortonTree[lci].closeCells.resize(0);
 		}
 
 		double tInflStop = omp_get_wtime();
@@ -232,71 +285,202 @@ namespace BH
 #pragma omp parallel for 
 		for (int i = 0; i < n; ++i)
 		{
-			result[i] = pointsCopy[i].veloCopy;
+			result[i] = IDPI * pointsCopy[i].veloCopy;
+#ifdef CALCSHEET
 #ifdef linScheme
-			result[i + n] = pointsCopy[i].veloCopyLin;
+			result[i + n] = IDPI * pointsCopy[i].veloCopyLin;
+#endif
 #endif
 		}//for i
+	}
 
-	}//InfluenceComputation(...)
 
-
-/*
-	void BarnesHut::IterativeInfluenceComputation(std::vector<Point2D>& result, std::vector<double>& newGam, int type)
+	// Расчет влияния 
+	void BarnesHut::InfluenceComputation(std::vector<Point2D>& result, double& timeParams, double& timeInfl)
 	{
-		tOtherStart += omp_get_wtime();
-		UpdateGams(newGam);
-		tOtherFinish += omp_get_wtime();
+		double tTreeParamsStart = omp_get_wtime();
 
-		tTreeParamsStart += omp_get_wtime();
-		tree->CalculateTreeParams();
-		tTreeParamsFinish += omp_get_wtime();
+		//omp_set_nested(1);
+		omp_set_max_active_levels(maxLevelOmp + 1);
 
-#pragma omp parallel for 
-		for (int i = 0; i < (int)tree->lowTrees.size(); ++i)
+#ifdef CALCVORTEXVELO
+		auto& treeContr = treeVrt;
+		auto& pointsCopy = pointsCopyVrt;
+#endif
+
+#ifdef CALCSHEET
+		auto& treeContr = treePan;
+		auto& pointsCopy = pointsCopyPan;
+#endif
+
+#ifdef CALCVP
+		auto& treeContr = treeVP;
+		auto& pointsCopy = pointsCopyVP;
+#endif
+
+#if defined CALCVORTEXVELO || defined CALCVP
+		treeVrt->CalculateMortonTreeParams(0, 0);
+#endif
+
+#if defined CALCSHEET || defined CALCVP
+		treePan->CalculateMortonTreeParams(0, 0);
+#endif
+
+		double tTreeParamsFinish = omp_get_wtime();
+		timeParams += tTreeParamsFinish - tTreeParamsStart;
+
+		//tree->tempBuffer.resize(pointsCopy.size());
+
+		double tInflStart = omp_get_wtime();
+
+		std::cout << "size = " << (int)treeContr->mortonLowCells.size() << std::endl;
+		
+
+
+#ifndef calcOp
+#pragma omp parallel for schedule(dynamic, 10)
+#endif
+		for (int i = 0; i < (int)treeContr->mortonLowCells.size(); ++i)
 		{
-			tOtherStart += omp_get_wtime();
-			tree->lowTrees[i]->ClearCoeff();
-			tOtherFinish += omp_get_wtime();
+			auto& lci = treeContr->mortonLowCells[i];
+			auto& lowCell = treeContr->mortonTree[lci];
+			
 
-			tCoeffStart += omp_get_wtime();
-			tree->CalcLocalCoeffToLowLevel(tree->lowTrees[i], false);
-			tCoeffFinish += omp_get_wtime();
 
-			tExactStart += omp_get_wtime();
-			switch (type)
-			{
-			case 0:
-				tree->lowTrees[i]->CalcConvVeloByBiotSavart();
-				break;
-			case 1:
-				tree->lowTrees[i]->UpdateInfluence();
-				break;
-			case 2:
-				tree->lowTrees[i]->CalcInfluenceFromPanelsToPoints();
-				break;
-			default:
-				break;
-			}
-			tExactFinish += omp_get_wtime();
+#if defined CALCVORTEXVELO || defined CALCVP
+			lowCell.E.toZero({ 0.0, 0.0 });
+			//treeContr->mortonTree[lci].closeCells.resize(0);
+			treeContr->CalcLocalCoeffToLowLevel(lci, treeVrt, 0, true);
+			treeContr->CalcVeloBiotSavart(lci, treeVrt);
+			treeContr->CalcVeloTaylorExpansion(lci);
+#endif //defined CALCVORTEXVELO || defined CALCVP
 
-			tOtherStart += omp_get_wtime();
-			tree->lowTrees[i]->CalcInfluenceFromVortexFarCells();
-			tOtherFinish += omp_get_wtime();
+
+
+#if defined CALCSHEET || defined CALCVP
+			lowCell.E.toZero({ 0.0, 0.0 });
+			treeContr->mortonTree[lci].closeCells.resize(0);
+			treeContr->CalcLocalCoeffToLowLevel(lci, treePan, 0, true);
+
+#ifdef CALCVP 
+			treeContr->CalcVeloBiotSavart(lci, treePan);
+#endif
+		
+#ifdef CALCSHEET
+			treeContr->CalcInfluenceFromPanels(lci);
+#endif
+			
+			treeContr->CalcVeloTaylorExpansion(lci);
+#endif//defined CALCSHEET || defined CALCVP
 		}
 
+		double tInflStop = omp_get_wtime();
+		timeInfl = tInflStop - tInflStart;
+
 		int n = (int)pointsCopy.size();
+
 #pragma omp parallel for 
 		for (int i = 0; i < n; ++i)
 		{
-			result[i] = pointsCopy[i].veloCopy;
+			result[i] = IDPI * pointsCopy[i].veloCopy + velInf;
+#ifdef CALCSHEET
 #ifdef linScheme
-			result[i + n] = pointsCopy[i].veloCopyLin;
+			result[i + n] = IDPI * pointsCopy[i].veloCopyLin;
+#endif
+#endif
+		}//for i
+	}//InfluenceComputation(...)
+
+
+	
+
+	//Расчет влияния вихревого следа на правую часть СЛАУ 
+	void BarnesHut::FillRhs(std::vector<double>& rhs, double& timeParams, double& timeInfl)
+	{
+		double tTreeParamsStart = omp_get_wtime();
+
+		auto& pointsCopy = pointsCopyPan;
+
+		treeVrt->CalculateMortonTreeParams(0, 0);
+		double tTreeParamsFinish = omp_get_wtime();
+
+		timeParams += tTreeParamsFinish - tTreeParamsStart;
+
+		double tInflStart = omp_get_wtime();
+#ifndef calcOp
+#pragma omp parallel for schedule(dynamic, 10)
+#endif
+		for (int i = 0; i < (int)treePan->mortonLowCells.size(); ++i)
+		{
+			auto& lci = treePan->mortonLowCells[i];
+
+			auto& lowCell = treePan->mortonTree[lci];
+			lowCell.E.toZero({ 0.0, 0.0 });
+
+			treePan->CalcLocalCoeffToLowLevel(lci, treeVrt, 0, true);
+
+
+			treePan->CalcInfluenceFromPointsToPanel(lci, treeVrt);
+			lowCell.closeCells.clear();
+
+			treePan->CalcVeloTaylorExpansion(lci);
+
+			treePan->AddVelo(lci);
+		}//for i
+
+		double tInflStop = omp_get_wtime();
+		timeInfl = tInflStop - tInflStart;
+
+		int n = (int)pointsCopy.size();
+
+#pragma omp parallel for 
+		for (int i = 0; i < n; ++i)
+		{
+			rhs[i] -= pointsCopy[i].velTau;
+#ifdef linScheme
+			rhs[i + n] -= pointsCopy[i].velTauLin;
+#endif
+		}//for i
+	}//FillRhs(...)
+
+
+	void BarnesHut::IterativeInfluenceComputation(std::vector<Point2D>& result, std::vector<double>& newGam, double& timeParams, double& timeInfl)
+	{
+		UpdateGams(newGam);
+		
+		double tTreeParamsStart = omp_get_wtime();
+		omp_set_max_active_levels(maxLevelOmp + 1);
+		
+		treePan->CalculateMortonTreeParams(0, 0);
+		double tTreeParamsFinish = omp_get_wtime();
+		timeParams += tTreeParamsFinish - tTreeParamsStart;
+
+		double tInflStart = omp_get_wtime();
+#pragma omp parallel for schedule(dynamic, 10)
+		for (int i = 0; i < (int)treePan->mortonLowCells.size(); ++i)
+		{
+			auto& lci = treePan->mortonLowCells[i];
+
+			auto& lowCell = treePan->mortonTree[lci];
+			lowCell.E.toZero({ 0.0, 0.0 });
+
+			treePan->CalcLocalCoeffToLowLevel(lci, treePan, 0, false);
+			treePan->UpdateInfluence(lci);
+
+			treePan->CalcVeloTaylorExpansion(lci);
+		}
+
+		double tInflStop = omp_get_wtime();
+		timeInfl += tInflStop - tInflStart;
+
+		int n = (int)pointsCopyPan.size();
+#pragma omp parallel for 
+		for (int i = 0; i < n; ++i)
+		{
+			result[i] = IDPI * pointsCopyPan[i].veloCopy;
+#ifdef linScheme
+			result[i + n] = IDPI * pointsCopyPan[i].veloCopyLin;
 #endif
 		}
 	}
-*/
-
 }//namespace BH
-
-

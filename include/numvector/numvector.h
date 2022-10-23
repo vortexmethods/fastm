@@ -393,10 +393,12 @@ namespace VMlib
 		///
 		/// \warning Работает корректно только для векторов с компонентами типа float и double
 		template <typename P = double>
-		void normalize(P newlen = 1.0)
+		T normalize(P newlen = 1.0)
 		{
-			auto ilen = static_cast<decltype(this->data()[0] * newlen)>(newlen / std::max(this->length(), 1e-16));
+			T len = this->length();
+			auto ilen = static_cast<decltype(this->data()[0] * newlen)>(newlen / std::max(len, 1e-16));
 			*this *= ilen;
+			return len;
 		}//normalize(...)
 
 

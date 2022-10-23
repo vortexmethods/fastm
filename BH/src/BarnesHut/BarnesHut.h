@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.1    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
+|        #####   ##  ##         |                            | Version 1.2    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.1
-\date 24 августа 2022 г.
+\version 1.2
+\date 22 октября 2022 г.
 */
 
 
@@ -48,48 +48,52 @@ namespace BH
 	class BarnesHut
 	{
 	public:
-
-		double tStart, tFin;
-		std::vector<PointsCopy> pointsCopy;
+		///Список точек: для вихрей и для панелей
+		std::vector<PointsCopy> pointsCopyPan, pointsCopyVrt, pointsCopyVP;
 		
 		/// умный yказатель на дерево 
-		mutable std::unique_ptr<MortonTree> tree;
+		mutable std::unique_ptr<MortonTree> treePan, treeVrt, treeVP;
 
 		/// Конструктор	
 		///
-		/// \param[in] points константная ссылка на список элементов
+		/// \param[in] pointsPan константная ссылка на список панелей
+		/// \param[in] pointsVrt константная ссылка на список частиц
 		/// \param[in] panPos константная ссылка на начала и концы панелей (для решения СЛАУ)
-		BarnesHut(const std::vector<Vortex2D>& points, const std::vector<Point2D>& panPos);
-		BarnesHut(const std::vector<Vortex2D>& points);
+		BarnesHut(const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos);
+		BarnesHut(const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos, std::vector<double> sec, const std::vector<Vortex2D>& pointsVP);
+		BarnesHut(const std::vector<Vortex2D>& pointsVrt);
+
+		void CreatePan(const Vortex2D& panCenter, const Point2D& panBegin, const Point2D& panEnd, double gamLin);
+		void ConvertToAsypmPanel(PointsCopy& panel, double mu, bool infinityAtBegin);
 
 		/// Деструктор
 		~BarnesHut() {};
 
-		void BuildTree(double& time);
+		///\brief Построение одного дерева tree на основе заданных точек pointsCopy  
+		void BuildOneTree(std::unique_ptr<MortonTree>& tree, std::vector<PointsCopy>& pointsCopy, bool ifpan, double& time);
 
-		///\brief Расчет влияния точек result самих на себя
-		/// \param[out] result --- вектор из скоростей точек 
-		/// \param[in] type --- тип расчета влияния "напрямую"
-		// 0 - Био --- Савар (по умолчанию), схема точка-точка БЕЗ РЕЗЕРВА
-		// 1 - Схема панель-панель
-		// 2 - Схема панель-точка
-		void InfluenceComputation(std::vector<Point2D>& result, int type, double& timeParams, double& timeInfl);
+		///\brief Построение всех нужных деревьев на основе заданных точек pointsCopy  
+		void BuildNecessaryTrees(double& time);
 
+		///\brief Расчет влияния
+		/// \param[out] result --- вектор из скоростей точек для сохранения результата
+		/// \param[out] timeParams --- время расчета параметров дерева
+		///	\param[out] timeInfl --- время расчета влияния
+		void InfluenceComputation(std::vector<Point2D>& result, double& timeParams, double& timeInfl);
+		void RhsComputation(std::vector<Point2D>& result, double& timeParams, double& timeInfl);
+	
 		/// \brief Расчет влияния точек result самих на себя внутри итерационного алгоритма
 		/// \param[out] result --- вектор из скоростей точек
 		/// \param[in] newGam --- вектор нового приближения/поправки/невязки
-		/// \param[in] type --- тип расчета влияния "напрямую"
-		// 0 - Био --- Савар (по умолчанию), схема точка-точка
-		// 1 - Схема панель-панель
-		// 2 - Схема панель-точка
-		
-		//void IterativeInfluenceComputation(std::vector<Point2D>& result, std::vector<double>& newGam, int type = 0);
+		void IterativeInfluenceComputation(std::vector<Point2D>& result, std::vector<double>& newGam, double& timeParams, double& timeInfl);
+
+		/// \brief Расчет влияния вихревого следа на правую часть СЛАУ 
+		/// \param[out] rhs --- вектор правой части
+		void FillRhs(std::vector<double>& rhs, double& timeParams, double& timeInfl);
 
 		/// Обновление циркуляций вихревых элементов (для решения СЛАУ)
+		/// \param[in] newGam --- вектор нового приближения/поправки/невязки 
 		void UpdateGams(std::vector<double>& newGam);
-
-		/// Обнуление временной статистики
-		void ClearTimestat();
 
 	};
 

@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.1    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |
+|        #####   ##  ##         |                            | Version 1.2    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.1
-\date 24 августа 2022 г.
+\version 1.2
+\date 22 октября 2022 г.
 */
 
 #ifndef LOGO_H_
@@ -50,8 +50,8 @@ namespace BH
 	{
 		str <<
 			"/*---------------------------------*- BH -*------------------*---------------*\\" << '\n' << \
-			"|        #####   ##  ##         |                            | Version 1.1    |" << '\n' << \
-			"|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/08/24     |" << '\n' << \
+			"|        #####   ##  ##         |                            | Version 1.2    |" << '\n' << \
+			"|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |" << '\n' << \
 			"|        #####   ######         |  for 2D vortex particles   *----------------*" << '\n' << \
 			"|        ##  ##  ##  ##         |  Open Source Code                           |" << '\n' << \
 			"|        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |" << '\n' << \
@@ -94,7 +94,7 @@ namespace BH
 		std::cout << "Maximal tree level:             " << NumOfLevels << std::endl;
 /*
 		std::cout << "Panels at tree lowest level:    " <<
-#ifdef pan 
+#ifdef infFromPanels 
 			"true" 
 #else
 			"false" 
