@@ -46,7 +46,7 @@
 
 namespace BH
 {
-
+	/// Печать логотипа программы
 	void PrintLogoToStream(std::ostream& str)
 	{
 		str <<
@@ -61,18 +61,24 @@ namespace BH
 			"\\*---------------------------------------------------------------------------*/" << '\n';
 	}
 
+	/// Печать числа используемых ядер при расчетах с помощью OpenMP и глубины порождения нитей при обходе дерева
 	void PrintProperties(const params& prm)
 	{
 		printf("\n");
 		printf("                             CPU Properties                             \n");
 		printf("------------------------------------------------------------------------\n");
 		printf("OpenMP max threads:                 %d\n", omp_get_max_threads());
-		//printf("OpenMP nested parallelism:        %s\n", (omp_get_nested() ? "on" : "off"));		
 		printf("Nested OpenMP up to tree level:     %d\n", prm.maxLevelOmp + 1);
 		printf("------------------------------------------------------------------------\n");
 	}
 
 
+	/// \brief Печать текущей конфигурации
+	///
+	/// \param[in] prm константная ссылка на параметры, считанные из файла
+	/// \param[in] nVrt число вихревых частиц в загруженном вихревом следе
+	/// \param[in] nPnl число панелей на профиле
+	/// \param[in] nVP число точек вычисления скорости в области течения
 	void PrintConfiguration(const params& prm, int nVrt, int nPnl, int nVP)
 	{
 #ifdef CALCVORTEXVELO
@@ -85,7 +91,6 @@ namespace BH
 #endif
 #endif
 			
-
 		auto shortName = [](const std::string& fileName)
 		{
 			char ch = '/';
@@ -125,7 +130,11 @@ namespace BH
 	}
 
 
-
+	/// \brief Печать информации о построенных деревьях
+	///
+	/// \param[in] treeVrt константная ссылка на дерево из вихревых частиц
+	/// \param[in] treePan константная ссылка на дерево из центров панелей
+	/// \param[in] treeVP константная ссылка на дерево из точек вычисления скоростей в области течения
 	void PrintTreesInfo(const std::unique_ptr<MortonTree>& treeVrt, const std::unique_ptr<MortonTree>& treePan, const std::unique_ptr<MortonTree>& treeVP)
 	{
 		std::cout << std::endl;
@@ -134,7 +143,7 @@ namespace BH
 		std::cout << "Tree      N particles   Treshold   Part. depth   Leafs depth   N leafs  " << std::endl;
 		std::cout << "------------------------------------------------------------------------" << std::endl;
 		
-			
+		//Печать статистики по одному дереву	
 		auto printStat = [](const std::unique_ptr<MortonTree>& tree, const std::string& label)
 		{
 			if (tree.get() != nullptr)
@@ -152,7 +161,7 @@ namespace BH
 	}//PrintTreesInfo
 		
 	
-
+	///Печать общей временнОй статистики
 	void PrintStatistics(int run, int runs,
 		const double* timing, const double* mintiming, const double* avtiming,
 		double runtime, double minruntime, double avruntime, int niter)
@@ -198,6 +207,7 @@ namespace BH
 		}
 	}
 
+	/// Печать количества операций
 	void PrintOps(long long nops)
 	{
 #ifdef calcOp
@@ -209,7 +219,7 @@ namespace BH
 #endif
 	}
 
-
+	/// Печать заголовка контроля точности
 	void PrintAccuracyHead()
 	{
 		std::cout << std::endl;
@@ -217,6 +227,7 @@ namespace BH
 		std::cout << "------------------------------------------------------------------------" << std::endl;
 	}
 
+	/// Печать величины ошибки
 	void PrintAccuracyError(double val)
 	{
 		std::cout << "Relative error:     " << val << std::endl;

@@ -56,45 +56,56 @@ namespace BH
 	static const double IPI = 1.0 / PI;
 	static const double IDPI = 0.5 / PI;
 
-
+	/// Длина мортоновского кода для каждой координаты (не более половины длины int в битах)
 	static const int codeLength = 14;
+
+	/// 2 в степени длины мортоновского кода (на каждую координату)
 	static const int twoPowCodeLength = (1 << codeLength);
 
-	// Вспомогательная функция, которая определяет, находится ли панель itI после панели itJ
+	/// \brief Вспомогательная функция, которая определяет, находится ли панель itI на контуре после панели itJ
+	///
+	/// \param[in] itI константная ссылка на обертку для второй ("правой") панели
+	/// \param[in] itJ константная ссылка на обертку для первой ("левой") панели
 	inline bool isAfter(const PointsCopy& itI, const PointsCopy& itJ)
 	{
 		return (itI.panBegin == itJ.panEnd);
 	}
 
-	// Вспомогательная функция вычисления угла между векторами
+	/// \brief Вспомогательная функция вычисления угла между векторами (в диапазоне (-pi...pi]) (со знаком, поворот от первого ко второму)
+	///
+	/// \param[in] p константная ссылка на первый вектор
+	/// \param[in] s константная ссылка на второй вектор 
 	inline double Alpha(const Point2D& p, const Point2D& s)
 	{
 		return atan2(cross3(p, s), p & s);
 		ADDOP(5);
 	}
 
-	// Вспомогательная функция вычисления логарифма отношения норм векторов
+	/// \brief  Вспомогательная функция вычисления логарифма отношения норм векторов
+	/// 
+	/// \param[in] p константная ссылка на первый вектор
+	/// \param[in] s константная ссылка на второй вектор 
 	inline double Lambda(const Point2D& p, const Point2D& s)
 	{
 		return 0.5 * log((s & s) / (p & p));
 		ADDOP(7);
 	}
 
-	// Вспомогательная функция вычисления 
+	/// Вспомогательная функция вычисления влияния панелей, принимает параметры двух панелей
 	inline Point2D Lambda(const Point2D& piast, const Point2D& kasiast, double leni, double len1, double s)
 	{
 		return { (piast[0] + leni * kasiast[0] * s) / len1, (piast[1] + leni * kasiast[1] * s) / len1 };
 		ADDOP(6);
 	}
 
-	// Вспомогательная функция вычисления величины \f$ (\vec a \cdot \vec b) \cdot \vec c + (\vec a \times \vec b) \times \vec c \f$
+	/// Вспомогательная функция вычисления величины \f$ (\vec a \cdot \vec b) \cdot \vec c + (\vec a \times \vec b) \times \vec c \f$
 	inline Point2D Omega(const Point2D& a, const Point2D& b, const Point2D& c)
 	{
 		return (a & b) * c + (Point2D({ -c[1], c[0] })) * cross3(a, b);
 		ADDOP(8);
 	}
 
-	// Вспомогательная функция корректировки capacity вектора
+	/// Вспомогательная функция корректировки capacity вектора (при необходимости - удваивает)
 	inline void SizeCheck(std::vector<Point2D>& i00)
 	{
 		if (i00.capacity() == i00.size())
@@ -102,14 +113,14 @@ namespace BH
 	}
 
 
-	//умножение комплексных чисел
+	/// Умножение комплексных чисел
 	inline Point2D multz(const Point2D& a, const Point2D& b)
 	{
 		ADDOP(4);
 		return Point2D({ a[0] * b[0] - a[1] * b[1], a[1] * b[0] + a[0] * b[1] });
 	}
 
-	//возведение в степень комплексных чисел
+	/// Возведение в степень комплексных чисел
 	inline Point2D powz(const Point2D& z, double n)
 	{
 		double phi, R;
@@ -119,14 +130,14 @@ namespace BH
 		return Point2D({ R * cos(phi), R * sin(phi) });
 	}
 
-	// умножение a на комплексно сопряженноe к b
+	/// Умножение a на комплексно сопряженноe к b
 	inline Point2D multzA(const Point2D& a, const Point2D& b)
 	{
 		ADDOP(4);
 		return Point2D({ a[0] * b[0] + a[1] * b[1], a[1] * b[0] - a[0] * b[1] });
 	}
 
-	//возведение в квадрат
+	/// Шаблонная функция возведения в квадрат
 	template <typename T>
 	inline T sqr(T x)
 	{
@@ -134,8 +145,9 @@ namespace BH
 		return x * x;
 	}
 
-	//Знак числа, написана оптимизированная версия, 
-	//которая работает самым быстрым возможным образом, т.к. не содержит ни одного оператора условного перехода
+	/// \brief Шаблонная функция знака числа
+	/// Написана оптимизированная версия, которая работает самым быстрым возможным образом, 
+	/// т.к. не содержит ни одного оператора условного перехода
 	template <typename T>
 	inline int sign(T val)
 	{
@@ -150,44 +162,28 @@ namespace BH
 	//    return x / y + (x % y != 0);
 	//}
 
-	//Округление "в потолок" результата деления на степень двойки
-	inline int ceilpow2(unsigned int x, unsigned int p) //  =ceil(x / 2^p)
+	/// \brief Округление "в потолок" результата деления на степень двойки, эквивалент ceil(x / (2^p))
+	///
+	/// \param[in] x делимое
+	/// \param[in] p показатель степени двойки в делителе
+	inline int ceilpow2(unsigned int x, unsigned int p) 
 	{
 		return (x >> p) + !!(x & ((1 << p) - 1));
 	}
 
-	//Округление "в потолок" результата деления пополам
-	inline int ceilhalf(unsigned int x) //  =ceil(x / 2), т.е. предыдущая функция при p=1
+	/// \brief Округление "в потолок" результата деления пополам, эквивалент ceil(x / 2)
+	inline int ceilhalf(unsigned int x) 
 	{
 		return (x >> 1) + (x & 1);
 	}
 
-	// Норма "2" (эвклидова)
+	/// \brief Шаблонная функция вычисления евклидовой нормы вектора или списка
+	///
+	/// \param[in] b константная ссылка на вектор или список
 	template<typename T>
-	inline double norm(/*const unsigned int DIM,*/ const T& b /*, const char flag*/)
+	inline double norm(const T& b)
 	{
-		double  norm = 0;
-		/*
-		if (flag == 'k')  //кубическая норма
-		{
-			for (unsigned int i = 0; i < DIM; i++)
-				if (norm < fabs(b[i]))  
-					norm = fabs(b[i]);
-			return norm;
-		}
-		*/
-
-		/*
-		if (flag == '1') //октаэдрическая норма
-		{
-			for (unsigned int j = 0; j < DIM; j++)
-				norm += fabs(b[j]);
-			return norm;
-		}
-		*/
-
-		//if (flag == '2')  //eвклидова
-		//{		
+		double norm = 0;
 #ifndef OLD_OMP
 #pragma omp simd reduction(+:norm)
 #endif
@@ -195,12 +191,9 @@ namespace BH
 				norm += (b[i] * b[i]);
 			ADDOP(2*b.size() + 1);
 			return sqrt(norm);
-		//}
-		//*/
-		//return 0;
 	}
 
-	// return x + y
+	/// Шаблонная функция сложения двух векторов
 	template<typename T>
 	inline std::vector<T> operator+(const std::vector<T>& x, const std::vector<T>& y)
 	{
@@ -213,7 +206,8 @@ namespace BH
 		return c;
 	}
 
-	// x += y
+
+	/// Шаблонная функция прибавления к одному вектору другого
 	template<typename T>
 	inline std::vector<T>& operator+=(std::vector<T>& x, const std::vector<T>& y)
 	{
@@ -225,7 +219,7 @@ namespace BH
 		return x;
 	}
 
-	// return x - y
+	/// Шаблонная функция вычитания векторов
 	template<typename T>
 	inline std::vector<T> operator-(const std::vector<T>& x, const std::vector<T>& y)
 	{
@@ -238,7 +232,7 @@ namespace BH
 		return c;
 	}
 
-	// x -= y
+	/// Шаблонная функция вычитания из одного вектора другого
 	template<typename T>
 	inline std::vector<T>& operator-=(std::vector<T>& x, const std::vector<T>& y)
 	{
@@ -250,7 +244,7 @@ namespace BH
 		return x;
 	}
 
-	// return lambda * x 
+	/// Шаблонная функция умножения числа на вектор
 	template<typename T>
 	inline std::vector<T> operator*(const T lambda, const std::vector<T>& x)
 	{
@@ -266,11 +260,12 @@ namespace BH
 		return c;
 	}
 
-	// return (x, y) 
+
+	/// Шаблонная функция вычисления скалярного произведения двух векторов
 	template<typename T>
 	inline T operator&(const std::vector<T>& x, const std::vector<T>& y)
 	{
-		T c = 0.0;
+		T c = 0;
 #ifndef OLD_OMP
 #pragma omp simd reduction(+:c)
 #endif
@@ -281,6 +276,7 @@ namespace BH
 	}
 
 #ifdef asympScheme
+	/// Вспомогательная функцяя для асимптотической схемы
 	inline Point2D sFirst(const Point2D& z, const int q, const int p, double len)
 	{
 		Point2D res = { 0.0, 0.0 };
@@ -291,11 +287,11 @@ namespace BH
 		
 		for (int j = 0; j <= q - 1; ++j)
 		{
-			arg = 2.0 * PI * j / q;
+			arg = DPI * j / q;
 			tmp = multz({ cos(arg), sin(arg) }, pw) + Point2D{ 1.0, 0.0 };
 			sum = { 0.5 * log(tmp.length2()), atan2(tmp[1], tmp[0]) };
 			res += multz({ cos(arg * p), sin(arg * p) }, sum);
-			ADDOP(14);
+			ADDOP(13);
 		}
 		res = -multz(powz((1.0 / len) * z, (-1.0 * p / q)), res);
 		ADDOP(5);
@@ -308,7 +304,7 @@ namespace BH
 		return res;
 	}
 
-	// Вспомогательная функция вычисления 
+	/// Вспомогательная функция для асимптотической схемы
 	inline Point2D F(const Point2D& z, const int q, const int p)
 	{
 		Point2D res = { 0.0, 0.0 };
@@ -317,13 +313,13 @@ namespace BH
 		Point2D pw = powz(z, -1.0 / q);
 		for (int j = 0; j <= q - 1; ++j)
 		{
-			arg = 2.0 * PI * j / q;
+			arg = DPI * j / q;
 			e = { cos(arg * p), sin(arg * p) };
 			sum1 = multz({ cos(arg), sin(arg) }, pw);
 			sum2 = { sum1[0] + 1.0, sum1[1] };
 			sum = { 0.5 * log(sum2.length2()), atan2(sum2[1], sum2[0]) };
 			res += multz(e, sum);
-			ADDOP(14);
+			ADDOP(13);
 		}
 
 		if (p & 1) //Если p - нечетное
@@ -332,7 +328,7 @@ namespace BH
 		return res;
 	}
 
-	// Вспомогательная функция вычисления 
+	/// Вспомогательная функцтя для асимптотической схемы
 	inline Point2D Ftilde(const Point2D& z, const int q, const int p)
 	{
 		Point2D res = { 0.0, 0.0 };
@@ -341,40 +337,40 @@ namespace BH
 		Point2D pw = powz(z, -1.0 / q);
 		for (int j = 0; j <= q / 2 - 1; ++j)
 		{
-			arg = 2.0 * PI * j / q;
+			arg = DPI * j / q;
 			e = { cos(arg * p), sin(arg * p) };
 			sum1 = multz({ cos(arg), sin(arg) }, pw);
 			sum2 = { sum1[0] + 1, sum1[1] };
 			sum = { 0.5 * log(sum2.length2()), atan2(sum2[1], sum2[0]) };
 			res += multz(e, sum);
-			ADDOP(14);
+			ADDOP(13);
 		}
 		for (int j = q / 2 + 1; j <= q - 1; ++j)
 		{
-			arg = 2.0 * PI * j / q;
+			arg = DPI * j / q;
 			e = { cos(arg * p), sin(arg * p) };
 			sum1 = multz({ cos(arg), sin(arg) }, pw);
 			sum2 = { sum1[0] + 1, sum1[1] };
 			sum = { 0.5 * log(sum2.length2()), atan2(sum2[1], sum2[0]) };
 			res += multz(e, sum);
-			ADDOP(14);
+			ADDOP(13);
 		}
 
 		if (p & 1)
 			res *= -1.0;
-		ADDOP(3);
+		ADDOP(2);
 		return res;
 	}
 
-	// Вспомогательная функция вычисления 
+	/// Вспомогательная функцтя для асимптотической схемы
 	inline Point2D Neopr0(const Point2D& piast, const Point2D& kasiast, double leni, double len1, double s, const int q, const int p)
 	{
 		Point2D lam = Lambda(piast, kasiast, leni, len1, s);
 		Point2D sum1 = { 0.5 * log((lam[0] - 1) * (lam[0] - 1) + (lam[1] * lam[1])), atan2(lam[1], lam[0] - 1) };
 		Point2D sum2 = multz(powz(lam, (double)(q - p) / q), F(lam, q, p));
 		Point2D icmplx = (1.0 / (kasiast.length2())) * Point2D({ kasiast[0], -kasiast[1] });
-		ADDOP(17);
-		return (q * len1 / (2.0 * PI * (q - p))) * multz(icmplx, sum1 - sum2);
+		ADDOP(16);
+		return (q * len1 / (DPI * (q - p))) * multz(icmplx, sum1 - sum2);
 	}
 
 	// Вспомогательная функция вычисления 
@@ -383,19 +379,19 @@ namespace BH
 		Point2D sum1 = { log(q), 0.0 };
 		Point2D sum2 = Ftilde({ 1.0, 0.0 }, q, p);
 		Point2D icmplx = (1.0 / (kasiast.length2())) * Point2D({ kasiast[0], -kasiast[1] });
-		ADDOP(12);
+		ADDOP(11);
 
-		return (q * len1 / (2.0 * PI * (q - p))) * multz(icmplx, sum1 - sum2);
+		return (q * len1 / (DPI * (q - p))) * multz(icmplx, sum1 - sum2);
 	}
 
-	// Вспомогательная функция вычисления 
+	/// Вспомогательная функцтя для асимптотической схемы
 	inline Point2D H(const Point2D& piast, double len1, const int q, const int p)
 	{
 		ADDOP(8);
 		return { 1.0 - (2.0 * q - p) * piast[0] / ((q - p)  * len1),  -((2.0 * q - p) * piast[1] / ((q - p) * len1)) };
 	}
 
-	// Вспомогательная функция вычисления 
+	/// Вспомогательная функцтя для асимптотической схемы
 	inline Point2D Neopr1(const Point2D& piast, const Point2D& kasiast, double leni, double len1, double s, const int q, const int p)
 	{
 		Point2D h = H(piast, len1, q, p);
@@ -409,12 +405,12 @@ namespace BH
 		Point2D icmplx = (1.0 / (kasiast2.length2())) * Point2D({ kasiast2[0], -kasiast2[1] });
 
 		Point2D sum3 = { multz(h, sum1)[0] - (h[0] - 1) - multz((h + lam1), sum2)[0], multz(h, sum1)[1] - (h[1]) - multz((h + lam1), sum2)[1] };
-		ADDOP(20);
+		ADDOP(19);
 
-		return len1 * len1 * q / (2.0 * PI * (2.0 * q - p) * leni) * multz(icmplx, sum3);
+		return len1 * len1 * q / (DPI * (2.0 * q - p) * leni) * multz(icmplx, sum3);
 	}
 
-	// Вспомогательная функция вычисления 
+	/// Вспомогательная функцтя для асимптотической схемы
 	inline Point2D NeoprLow1(const Point2D& kasiast, double leni, double len1, const int q, const int p)
 	{
 		Point2D sum1 = { log(q), 0.0 };
@@ -422,13 +418,13 @@ namespace BH
 		Point2D kasiast2 = multz(kasiast, kasiast);
 		Point2D icmplx = (1.0 / (kasiast2.length2())) * Point2D({ kasiast2[0], -kasiast2[1] });
 		Point2D sum = { 1.0 - (double)q / (q - p) * (sum1[0] - sum2[0]), (double)q / (q - p) * (sum1[1] - sum2[1]) };
-		ADDOP(19);
+		ADDOP(18);
 
-		return len1 * len1 * q / (2.0 * PI * (2.0 * q - p) * leni) * multz(icmplx, sum);
+		return len1 * len1 * q / (DPI * (2.0 * q - p) * leni) * multz(icmplx, sum);
 	}
 
 
-	// Вспомогательная функция вычисления вектора
+	/// Вспомогательная функцтя для асимптотической схемы
 	inline numvector<Point2D, 2> StoConstFrom1(const numvector<Point2D, 2>& pan1arb, const numvector<Point2D, 2>& paniarb, const int t, const params& prm)
 	{
 		auto q = prm.q;

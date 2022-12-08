@@ -169,7 +169,7 @@ namespace BH
 
 
 	//Конструктор для вычисления скоростей частиц pointsVР, вызванных влиянием pointsVrt
-	BarnesHut::BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos, std::vector<double> sec, const std::vector<Vortex2D>& pointsVP)
+	BarnesHut::BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos, const std::vector<double>& sec, const std::vector<Vortex2D>& pointsVP)
 		: prm(prm_) 
 	{
 		// заполнение массива для панелей
@@ -237,7 +237,7 @@ namespace BH
 	}
 	
 	// Обновление циркуляций вихревых элементов (для решения СЛАУ)
-	void BarnesHut::UpdateGams(std::vector<double>& newGam)
+	void BarnesHut::UpdateGams(const std::vector<double>& newGam)
 	{
 		int n = (int)pointsCopyPan.size();
 
@@ -463,7 +463,7 @@ namespace BH
 	}//FillRhs(...)
 
 
-	void BarnesHut::IterativeInfluenceComputation(std::vector<Point2D>& result, std::vector<double>& newGam, double& timeParams, double& timeInfl)
+	void BarnesHut::IterativeInfluenceComputation(std::vector<Point2D>& result, const std::vector<double>& newGam, double& timeParams, double& timeInfl)
 	{
 		UpdateGams(newGam);
 		

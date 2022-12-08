@@ -444,8 +444,10 @@ void CalcVortexVelo(const params& prm)
 	}//run
 
 
-
 	std::string suffix = "";
+	if (prm.save)
+		SaveVelocity(prm, velo, suffix);
+
 	// Сравнение решений по прямому и быстрому методу
 	if (prm.compare)
 	{
@@ -456,10 +458,6 @@ void CalcVortexVelo(const params& prm)
 		BH::op = 0;
 #endif
 	}
-
-
-	if (prm.save)
-		SaveVelocity(prm, velo, suffix);
 
 	std::cout << "Goodbye! " << std::endl;
 }
@@ -536,6 +534,9 @@ void CalcVPVelo(const params& prm)
 	std::string suffix = "-const";
 #endif//linScheme
 
+	if (prm.save)
+		SaveVelocity(prm, velo, suffix);
+
 	// Сравнение решений по прямому и быстрому методу
 	if (prm.compare)
 	{
@@ -546,9 +547,6 @@ void CalcVPVelo(const params& prm)
 		BH::op = 0;
 #endif
 	}
-
-	if (prm.save)
-		SaveVelocity(prm, velo, suffix);
 
 	std::cout << "Goodbye! " << std::endl;
 }
@@ -639,7 +637,17 @@ void SolveLinearSystem(const params& prm)
 		BH::op = 0;
 #endif
 	}//runs
-		
+
+	if (prm.save)
+	{
+		std::ofstream outfile("../../res/gamRes.txt");
+		outfile.precision(16);
+		for (int i = 0; i < vsize; i++)
+			outfile << gam[i] << std::endl;
+		outfile << R << std::endl;
+		outfile.close();
+	}//save
+
 	if (prm.compare)
 	{
 		PrintAccuracyHead();
@@ -658,7 +666,7 @@ void SolveLinearSystem(const params& prm)
 			std::cout << "File with exact solution is found, loading it... ";
 		else
 		{
-			std::cout << "File with exact solution is not found, error!";
+			std::cout << "File with exact solution is not found, error!" << std::endl;
 			exit(-1);
 		}
 
@@ -699,16 +707,6 @@ void SolveLinearSystem(const params& prm)
 		infile.close();
 	}//compare
 
-
-	if (prm.save)
-	{
-		std::ofstream outfile("../../res/gamRes.txt");
-		outfile.precision(16);
-		for (int i = 0; i < vsize; i++)
-			outfile << gam[i] << std::endl;
-		outfile << R << std::endl;
-		outfile.close();
-	}//save
 
 	std::cout << "Goodbye! " << std::endl;
 }//SolveLinearSystem()
