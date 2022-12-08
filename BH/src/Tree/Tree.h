@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.2    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
+|        #####   ##  ##         |                            | Version 1.3    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -31,25 +31,21 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.2
-\date 22 октября 2022 г.
+\version 1.3
+\date 08 декабря 2022 г.
 */
 
 #ifndef TREE_H_
 #define TREE_H_
 
-#include <iostream>
+
 #include <memory>
 
 #include "defs.h"
-#include "Params.h"
-#include "PointsCopy.h"
 
 namespace BH
 {
-
 	extern long long op;
-
 
 	struct TParticleCode
 	{
@@ -81,10 +77,10 @@ namespace BH
 		int level;      //уровень текущей ячейки в дереве
 		
 		//Мультипольные моменты ячейки 
-		numvector<Point2D, order + 1> mom;
+		std::vector<Point2D> mom;
 
 		//Коэффициенты для вычисления скоростей
-		numvector<Point2D, order> E;
+		std::vector<Point2D> E;
 
 		//Вектор указателей на ячейки в ближней зоне (там, где надо считать влияние "напрямую") 
 		//имеет смысл только для нижних уровней
@@ -96,6 +92,9 @@ namespace BH
 	class MortonTree
 	{
 	private:
+		//Ссылка на параметры
+		const params& prm;
+
 		//Ссылка на список обобщенных вихрей, по которым строится дерево
 		std::vector<PointsCopy>& pointsCopy;
 
@@ -113,13 +112,13 @@ namespace BH
 		Point2D lowLeft;
 
 		//Функция вычисления длины общей части префиксов двух (а значит - и диапазона) частиц
-		int Delta(int i, int j);
+		int Delta(int i, int j) const;
 
 		//Функция вычисления длины общей части префиксов всех частиц в конкретной ячейке
-		int PrefixLength(int cell);
+		int PrefixLength(int cell) const;
 
 		//Функция вычисления общего префикса двух частиц
-		std::pair<unsigned int, int> Prefix(int cell);
+		std::pair<unsigned int, int> Prefix(int cell) const;
 		
 		//Функция вычисления геометрических параметров внутренней ячейки дерева
 		void SetCellGeometry(int cell);
@@ -153,10 +152,13 @@ namespace BH
 		inline void RSort_Parallel(TParticleCode* m, TParticleCode* m_temp, unsigned int n, unsigned int* s);
 
 	public:
-		numvector<double, order + 1> iFact;
-		numvector<double, (order + 1) * (order + 1)> binomCft;
+		std::vector<double> iFact;
+		std::vector<double> binomCft;
+		
+		void getStatistics(int& numParticles, int& treshold, std::pair<int, int>& partLevel, std::pair<int, int>& leafsLevel, int& lowLevelCells) const;
+		
 		double& getBinom(int n, int k) {
-			return binomCft[n * (order + 1) + k];
+			return binomCft[n * (prm.order + 1) + k];
 		}
 		
 		//std::vector<double> tempBuffer;
@@ -164,8 +166,11 @@ namespace BH
 		//Признак того, что дерево из панелей (иначе - из точек)
 		bool pans;
 
+		//Максимальная глубина дерева при его обходе
+		const int maxTreeLevel;
+
 		//Конструктор
-		MortonTree(std::vector<PointsCopy>& points, bool ifpans);		
+		MortonTree(const params& prm_, int maxTreeLevel_, std::vector<PointsCopy>& points, bool ifpans);
 		
 		//Вектор номеров ячеек нижнего уровня 
 		std::vector<int> mortonLowCells;

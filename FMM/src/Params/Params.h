@@ -1,11 +1,11 @@
 /*--------------------------------*- FMM -*------------------*---------------*\
-|   ######  ##   ##  ##   ##    |                            | Version 1.0    |
-|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2021/08/05     |
+|   ######  ##   ##  ##   ##    |                            | Version 1.3    |
+|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2022/12/08     |
 |   ####    ## # ##  ## # ##    |  for 2D vortex particles   *----------------*
 |   ##      ##   ##  ##   ##    |  Open Source Code                           |
 |   ##      ##   ##  ##   ##    |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
+| Copyright (C) 2020-2022 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
 *-----------------------------------------------------------------------------*
 | File name: Params.h                                                         |
 | Info: Source code of FMM                                                    |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Попудняк Дарья Олеговна
-\version 1.0
-\date 05 августа 2021 г.
+\version 1.3
+\date 08 декабря 2022 г.
 */
 
 #ifndef DEF_H_
@@ -44,24 +44,24 @@ namespace FMM
 {
 
 	//Число членов разложения
-	const int nt = 9;
+	const int nt = 10;
 
 	// радиус вихревого элемента
 	static const double eps = 1e-3;
 
 	// Имя файла с задачей
-	static const std::string nameFile = "../../test/test100000.txt";
+	static const std::string nameFile = "../../test/test2000000.txt";
 	// Название задачи для файла с результатом
-	static const std::string task = "100k";
+	static const std::string task = "2m";
 
 	// Число уровней дерева 
-	const int maxLevel = 5;
+	const int maxLevel = 8;
 
 	//Сравнение с прямым методом
 	static const bool compare = true;
 
 	//Число повторных запусков кода
-	static const int runs = 10;
+	static const int runs = 5;
 
 	//Признак подсчета числа операций
 	//#define calcOp

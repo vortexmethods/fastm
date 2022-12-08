@@ -1,11 +1,11 @@
 #/*--------------------------------*- FMM -*------------------*---------------*\
-#|   ######  ##   ##  ##   ##    |                            | Version 1.0    |
-#|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2021/08/05     |
+#|   ######  ##   ##  ##   ##    |                            | Version 1.3    |
+#|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2022/12/08     |
 #|   ####    ## # ##  ## # ##    |  for 2D vortex particles   *----------------*
 #|   ##      ##   ##  ##   ##    |  Open Source Code                           |
 #|   ##      ##   ##  ##   ##    |  https://www.github.com/vortexmethods/fastm |
 #|                                                                             |
-#| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
+#| Copyright (C) 2020-2022 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
 #*-----------------------------------------------------------------------------*
 #| File name: CMakeLists.txt                                                   |
 #| Info: Source code of FMM                                                    |
@@ -26,7 +26,7 @@
 #\*---------------------------------------------------------------------------*/
 
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.0)
 project(FMM LANGUAGES CXX)
 
 set(CMAKE_CONFIGURATION_TYPE "Debug;Release")

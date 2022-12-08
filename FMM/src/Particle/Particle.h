@@ -1,11 +1,11 @@
 /*--------------------------------*- FMM -*------------------*---------------*\
-|   ######  ##   ##  ##   ##    |                            | Version 1.0    |
-|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2021/08/05     |
+|   ######  ##   ##  ##   ##    |                            | Version 1.3    |
+|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2022/12/08     |
 |   ####    ## # ##  ## # ##    |  for 2D vortex particles   *----------------*
 |   ##      ##   ##  ##   ##    |  Open Source Code                           |
 |   ##      ##   ##  ##   ##    |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
+| Copyright (C) 2020-2022 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
 *-----------------------------------------------------------------------------*
 | File name: Particle.h                                                       |
 | Info: Source code of FMM                                                    |
@@ -27,12 +27,12 @@
 
 /*!
 \file
-\brief Описание структуры Particle
-\author Марчевский Илья Константинович
-\author Рятина Евгения Павловна
-\author Попудняк Дарья Олеговна
-\version 1.0
-\date 05 августа 2021 г.
+\brief РћРїРёСЃР°РЅРёРµ СЃС‚СЂСѓРєС‚СѓСЂС‹ Particle
+\author РњР°СЂС‡РµРІСЃРєРёР№ РР»СЊСЏ РљРѕРЅСЃС‚Р°РЅС‚РёРЅРѕРІРёС‡
+\author Р СЏС‚РёРЅР° Р•РІРіРµРЅРёСЏ РџР°РІР»РѕРІРЅР°
+\author РџРѕРїСѓРґРЅСЏРє Р”Р°СЂСЊСЏ РћР»РµРіРѕРІРЅР°
+\version 1.3
+\date 08 РґРµРєР°Р±СЂСЏ 2022 Рі.
 */
 
 

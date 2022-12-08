@@ -1,11 +1,11 @@
 /*--------------------------------*- FMM -*------------------*---------------*\
-|   ######  ##   ##  ##   ##    |                            | Version 1.0    |
-|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2021/08/05     |
+|   ######  ##   ##  ##   ##    |                            | Version 1.3    |
+|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2022/12/08     |
 |   ####    ## # ##  ## # ##    |  for 2D vortex particles   *----------------*
 |   ##      ##   ##  ##   ##    |  Open Source Code                           |
 |   ##      ##   ##  ##   ##    |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
+| Copyright (C) 2020-2022 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
 *-----------------------------------------------------------------------------*
 | File name: FastMultipole.cpp                                                |
 | Info: Source code of FMM                                                    |
@@ -27,16 +27,18 @@
 
 /*!
 \file
-\brief Реализация класса FastMultipole
-\author Марчевский Илья Константинович
-\author Рятина Евгения Павловна
-\author Попудняк Дарья Олеговна
-\version 1.0
-\date 05 августа 2021 г.
+\brief Р РµР°Р»РёР·Р°С†РёСЏ РєР»Р°СЃСЃР° FastMultipole
+\author РњР°СЂС‡РµРІСЃРєРёР№ РР»СЊСЏ РљРѕРЅСЃС‚Р°РЅС‚РёРЅРѕРІРёС‡
+\author Р СЏС‚РёРЅР° Р•РІРіРµРЅРёСЏ РџР°РІР»РѕРІРЅР°
+\author РџРѕРїСѓРґРЅСЏРє Р”Р°СЂСЊСЏ РћР»РµРіРѕРІРЅР°
+\version 1.3
+\date 08 РґРµРєР°Р±СЂСЏ 2022 Рі.
 */
 
 
 #include <algorithm>
+#include <numeric>
+
 #include <complex>
 #include <fstream>
 #include <iostream>
@@ -50,6 +52,10 @@
 #include "Particle.h"
 #include "Point2D.h"
 #include "Tree.h"
+
+double mt = 0.0, m2mt = 0.0;
+
+using namespace std::literals;
 
 namespace FMM
 {
@@ -118,7 +124,7 @@ namespace FMM
 			{
 				diff = leaf.pp[leaf.particles[j]].z - std::complex<double>{leaf.c[0], leaf.c[1]};
 
-				//Если потенциал не нужен - суммируем до nt-1, иначе - до nt
+				//Р•СЃР»Рё РїРѕС‚РµРЅС†РёР°Р» РЅРµ РЅСѓР¶РµРЅ - СЃСѓРјРјРёСЂСѓРµРј РґРѕ nt-1, РёРЅР°С‡Рµ - РґРѕ nt
 				for (int q = 1; q < (calcPot ? nt : nt - 1); ++q)
 				{
 					pows[q] = pows[q - 1] * diff;
@@ -130,7 +136,7 @@ namespace FMM
 				if (calcPot)
 					z = 0.0;
 
-				//Если потенциал не нужен - суммируем с единицы, иначе - с нуля
+				//Р•СЃР»Рё РїРѕС‚РµРЅС†РёР°Р» РЅРµ РЅСѓР¶РµРЅ - СЃСѓРјРјРёСЂСѓРµРј СЃ РµРґРёРЅРёС†С‹, РёРЅР°С‡Рµ - СЃ РЅСѓР»СЏ
 				for (int k = (calcPot ? 0 : 1); k < nt; k++)
 				{
 					if (calcPot)
@@ -153,13 +159,13 @@ namespace FMM
 
 			for (int j = 0; j < (int)leaf.closeNeighbor.size(); j++)
 			{
-				if (calcPot)
+				//if (calcPot)
 					potentialDS(leaf, qtree.node[leaf.closeNeighbor[j]]);
 
 				forceDS(leaf, qtree.node[leaf.closeNeighbor[j]]);
 			}
 
-			if (calcPot)
+			//if (calcPot)
 				potentialDS(leaf, leaf);
 
 			forceDS(leaf, leaf);
@@ -169,14 +175,17 @@ namespace FMM
 		tLeaf += t2 - t1;
 	}
 
-
 	void FastMultipole::Upward(Tree& qtree, int pos)
 	{
 		for (int i = 0; i < nt; ++i)
 			qtree.node[pos].inner[i] = 0.0;
 
 		if ((qtree.node[pos].leaf))
+		{
+			double t1 = omp_get_wtime();
 			multipole(qtree.node[pos]);
+			mt += omp_get_wtime() - t1;
+		}
 		else
 		{
 			std::complex<double> temp[nt];
@@ -185,7 +194,9 @@ namespace FMM
 			{
 				Upward(qtree, qtree.node[pos].child[i]);
 				c = qtree.node[qtree.node[pos].child[i]].c - qtree.node[pos].c;
+				double t1 = omp_get_wtime();
 				M2M(qtree.node[qtree.node[pos].child[i]].outer, c, temp);
+				m2mt += omp_get_wtime() - t1;
 				for (int j = 0; j < nt; j++)
 				{
 					qtree.node[pos].outer[j] += temp[j];
@@ -241,6 +252,7 @@ namespace FMM
 	void FastMultipole::L2L(const std::complex<double>* coeffs, Point2D c, std::complex<double>* shift)
 	{
 		std::complex <double> z0 = { c[0],c[1] };
+/*
 		for (int i = 0; i < nt; ++i)
 		{
 			shift[i] = 0.0;
@@ -252,6 +264,19 @@ namespace FMM
 #endif
 			}
 		}
+*/
+		for (int j = 0; j < nt; ++j)
+			shift[j] = coeffs[j];
+
+		for (int j = 0; j < nt; ++j)
+		{			
+			for (int k = nt - j - 1; k < nt - 1; ++k)
+			{
+				shift[k] -= z0 * shift[k + 1];
+			}
+		}
+
+
 		//return shift;
 	}
 
@@ -260,13 +285,16 @@ namespace FMM
 		return 0.5 * log(a.real() * a.real() + a.imag() * a.imag());
 	}
 
+	std::complex<double> iz0powi[nt], prod[nt];
+
 	void FastMultipole::M2L(const std::complex<double>* coeffs, Point2D c, std::complex<double>* inner)
-	{
-		std::complex<double> iz0powi[nt], prod[nt];
+	{		
 		std::complex<double> z0 = { c[0], c[1] };
 
 		iz0powi[0] = 1.0;
 		prod[0] = 0.0;
+
+		std::complex<double> tmp;
 
 		if (calcPot)
 		{
@@ -278,7 +306,9 @@ namespace FMM
 
 		for (int i = 1; i < nt; ++i)
 		{
+			//iz0powi[i] = iz0powi[i - 1] / z0;
 			divComp(iz0powi[i - 1], z0, iz0powi[i]);
+
 
 			prod[i] = m1(i) * coeffs[i] * iz0powi[i];
 #ifdef calcOp
@@ -294,13 +324,20 @@ namespace FMM
 #ifdef calcOp
 			opDiv += 1; opMult += 6;
 #endif
+			tmp = 0.0;
 			for (int j = 1; j < nt; ++j)
 			{
-				inner[i] += binom(i + j - 1, j - 1) * prod[j] * iz0powi[i];
+				tmp += binom(i + j - 1, j - 1) * prod[j];
 #ifdef calcOp
-				opMult += 6;
+				opMult += 2;
 #endif
 			}
+
+			inner[i] += iz0powi[i] * tmp;
+#ifdef calcOp
+			opMult += 2;
+#endif
+
 		}
 	}
 
@@ -354,25 +391,28 @@ namespace FMM
 		}
 	}
 
+	std::vector<std::complex<double>> tabpow(nt, 1.0);
+	
 	void FastMultipole::M2M(const std::complex<double>* coeffs, Point2D c, std::complex<double>* shift)
 	{
 		std::complex <double> z0 = { c[0], c[1] };
-		for (int i = 0; i < nt; i++)
-		{
-			if (i == 0)
-			{
-				shift[i] = coeffs[0];
-				continue;
-			}
+		
+		shift[0] = coeffs[0];
 
-			shift[i] = -(coeffs[0] * myPow(z0, i)) / (double)i;
+		
+		for (int i = 1; i < nt; ++i)
+			tabpow[i] = tabpow[i - 1] * z0;
+
+		for (int i = 1; i < nt; ++i)
+		{
+			shift[i] = -(coeffs[0] * tabpow[i]) / (double)i;
 #ifdef calcOp
 			opMult += 4; opDiv += 2;
 #endif		
-			for (int j = 1; j <= i; j++)
+			for (int j = 1; j <= i; ++j)
 			{
 				//double b = binom(i - 1, j - 1);
-				shift[i] += coeffs[j] * myPow(z0, (i - j)) * binom(i - 1, j - 1);
+				shift[i] += coeffs[j] * tabpow[i-j] * binom(i - 1, j - 1);
 #ifdef calcOp
 				opMult += 4; opMult += 2;
 #endif
@@ -380,25 +420,66 @@ namespace FMM
 		}
 	}
 
+
+
 	void FastMultipole::multipole(Cell& node)
 	{
-		std::complex <double> z0 = { node.c[0], node.c[1] };
-		int nd;
+/*		
+		std::complex <double> z0 = {node.c[0], node.c[1]};
+		//int nd;
 		for (int i = 0; i < (int)node.particles.size(); i++)
 		{
-			nd = node.particles[i];
-			for (int j = 0; j < nt; j++)
-			{
-				node.outer[j] += (j == 0) ? node.pp[nd].q : (-node.pp[nd].q / j * myPow(node.pp[nd].z - z0, j));
+			const auto& nd = node.pp[node.particles[i]];
+			//nd = node.particles[i];
 
-				if (j != 0)
-				{
+			node.outer[0] += nd.q; //node.pp[nd].q;
+
+			for (int j = 1; j < nt; j++)
+			{
+				//node.outer[j] -= node.pp[nd].q / j * myPow(node.pp[nd].z - z0, j);
+				node.outer[j] -= nd.q / j * myPow(nd.z - z0, j);
 #ifdef calcOp
 					opDiv += 1; opMult += 2;
 #endif
-				}
 			}
 		}
+//*/
+
+		//*		
+		std::complex <double> z0 = {node.c[0], node.c[1]};
+		std::complex <double> tmp;
+
+		for (int j = 1; j < nt; ++j)
+		{
+			//tmp = 0.0;
+			for (int i = 0; i < (int)node.particles.size(); ++i)
+			{
+				const auto& nd = node.pp[node.particles[i]];
+				node.outer[j] -= nd.q * myPow(nd.z - z0, j);
+			}			
+			node.outer[j] /= (double)j;
+		}//for j
+
+		for (int i = 0; i < (int)node.particles.size(); i++)
+		{
+			const auto& nd = node.pp[node.particles[i]];
+			node.outer[0] += nd.q;
+		}
+		//*/
+
+		/*
+		std::complex <double> z0 = { node.c[0], node.c[1] };
+		for (int i = 1; i < nt; ++i)
+		{
+			auto temp = std::accumulate(node.particles.begin(), node.particles.end(), 0.0i, [&z0, i, &node, this](const std::complex<double>& x, const int& y)
+				{
+					return x + node.pp[y].q * myPow(node.pp[y].z - z0, i);
+				});
+			node.outer[i] = -temp / double(i);
+		}
+
+		node.outer[0] = accumulate(node.particles.begin(), node.particles.end(), 0.0i, [this, &node](const std::complex<double>& x, const int& y) { return x + node.pp[y].q; });
+		*/
 
 	}
 

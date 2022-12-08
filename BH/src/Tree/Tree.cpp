@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.2    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
+|        #####   ##  ##         |                            | Version 1.3    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -31,14 +31,12 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.2
-\date 22 октября 2022 г.
+\version 1.3
+\date 08 декабря 2022 г.
 */
 
 #include <algorithm>
-#include <tuple>
-
-#include <omp.h>
+#include <cstring>
 
 #include "Tree.h"
 
@@ -47,10 +45,16 @@ namespace BH
 	extern long long op;
 
 	//Конструктор
-	MortonTree::MortonTree(std::vector<PointsCopy>& points, bool ifpans)
-		: pointsCopy(points), pans(ifpans)
+	MortonTree::MortonTree(const params& prm_, int maxTreeLevel_, std::vector<PointsCopy>& points, bool ifpans)
+		: prm(prm_), pointsCopy(points), pans(ifpans), maxTreeLevel(maxTreeLevel_)
 	{
 		mortonTree.resize(2 * points.size());
+		for (auto& c : mortonTree)
+		{
+			c.mom.resize(prm.order + 1);
+			c.E.resize(prm.order);
+		}
+
 		mortonCodes.resize(points.size());
 		mortonLowCells.reserve(points.size());
 		
@@ -58,11 +62,15 @@ namespace BH
 		s.resize(256 * omp_get_max_threads());
 
 		//Вычисляем факториалы и биномиальные коэффиценты
+		iFact.resize(prm.order + 1);
+		binomCft.resize((prm.order + 1) * (prm.order + 1));
+		
 		iFact[0] = 1.0;
-		for (int i = 1; i <= order; ++i)
+		for (int i = 1; i <= prm.order; ++i)
 			iFact[i] = iFact[i - 1] / i;
 		getBinom(0, 0) = 1.0;
-		for (int i = 1; i <= order; ++i) {
+		for (int i = 1; i <= prm.order; ++i) 
+		{
 			getBinom(i, 0) = 1.0;
 			getBinom(i, i) = 1.0;
 			for (int j = 1; j < i; ++j)
@@ -174,9 +182,9 @@ namespace BH
 
 
 	//Функция вычисления длины общей части префиксов двух(а значит - и диапазона) частиц
-	int MortonTree::Delta(int i, int j)
+	int MortonTree::Delta(int i, int j) const
 	{
-		if ((j < 0) || (j > pointsCopy.size() - 1))
+		if ((j < 0) || (j > (int)pointsCopy.size() - 1))
 			return -1;
 
 		if (i > j)
@@ -206,7 +214,7 @@ namespace BH
 
 
 	//Функция вычисления длины общей части префиксов всех частиц в конкретной ячейке
-	int MortonTree::PrefixLength(int cell)
+	int MortonTree::PrefixLength(int cell) const
 	{
 		const auto& range = mortonTree[cell].range;
 		return std::min(Delta(range[0], range[1]), 2 * codeLength);
@@ -214,7 +222,7 @@ namespace BH
 
 	
 	//Функция вычисления общего префикса двух частиц
-	std::pair<unsigned int, int> MortonTree::Prefix(int cell)
+	std::pair<unsigned int, int> MortonTree::Prefix(int cell) const
 	{
 		int length = PrefixLength(cell);
 		unsigned int el = mortonCodes[mortonTree[cell].range[0]].key;
@@ -246,7 +254,7 @@ namespace BH
 		mortonTree[cell].size = sz * (1.0 / iQuadSideVar);
 		mortonTree[cell].level = prLength;
 
-		mortonTree[cell].leaf = (prLength >= NumOfLevels);
+		mortonTree[cell].leaf = (prLength >= maxTreeLevel);
 	}//SetCellGeometry(...)
 
 
@@ -304,14 +312,14 @@ namespace BH
 	void MortonTree::BuildMortonInternalTree()
 	{
 #pragma omp parallel for schedule(dynamic, 1000)
-		for (int q = 0; q < pointsCopy.size() - 1; ++q)
+		for (int q = 0; q < (int)pointsCopy.size() - 1; ++q)
 			BuildInternalTreeCell(q);
 		
 		mortonTree[pointsCopy.size() - 1].leaf = false;
 		mortonTree[pointsCopy.size() - 1].particle = false;
 
 #pragma omp parallel for schedule(dynamic, 1000)
-		for (int q = 0; q < pointsCopy.size() - 1; ++q)
+		for (int q = 0; q < (int)pointsCopy.size() - 1; ++q)
 			SetCellGeometry(q);
 	}//BuildMortonInternalTree()
 
@@ -320,7 +328,7 @@ namespace BH
 	void MortonTree::BuildMortonParticlesTree()
 	{
 #pragma omp parallel for		
-		for (int q = 0; q < pointsCopy.size(); ++q)
+		for (int q = 0; q < (int)pointsCopy.size(); ++q)
 		{
 			auto& pt = mortonCodes[q];
 
@@ -355,7 +363,7 @@ namespace BH
 		{
 			std::vector<int> good_matches_private;
 #pragma omp for nowait
-			for (int cell = 0; cell < mortonTree.size(); ++cell)			
+			for (int cell = 0; cell < (int)mortonTree.size(); ++cell)			
 				if (!mortonTree[mortonTree[cell].parent].leaf && mortonTree[cell].leaf)				
 					good_matches_private.push_back(cell);				
 #pragma omp critical
@@ -370,44 +378,40 @@ namespace BH
 		auto& cl = mortonTree[cell];
 		if (!cl.particle)
 		{
-#pragma omp parallel default(none) shared(cl, omplevel) num_threads(2) if (omplevel > maxLevelOmp + 1)
+#pragma omp parallel /*default(none)*/ shared(cl, omplevel) num_threads(2) if (omplevel < prm.maxLevelOmp + 1)
 			{				
+				std::vector<Point2D> h(prm.order);
 #pragma omp for 
 				for (int s = 0; s < 2; ++s)
 					CalculateMortonTreeParams(cl.child[s], omplevel + 1);
 
 #pragma omp single
-				{
-					cl.mom.toZero({0.0, 0.0});
-
-					numvector<Point2D, order> h;
+				{					
+					for (auto& m : cl.mom)
+						m.toZero();
+										
 					for (int s = 0; s < 2; ++s)//цикл по двум потомкам
 					{
 						auto& chld = mortonTree[cl.child[s]];
 						const Point2D& g = chld.mom[0];
 						cl.mom[0] += g;
 
+						
 						h[0] = (chld.center) - (cl.center);
-						for (int i = 1; i < order; ++i)
-						{
+						for (int i = 1; i < prm.order; ++i)
 							h[i] = multz(h[i - 1], h[0]);
-#ifdef calcOp
-							op += 4;
-#endif
-						}//for i
-
-						for (int p = 1; p <= order; ++p) 
+						
+						for (int p = 1; p <= prm.order; ++p) 
 						{
 							Point2D shiftMom = chld.mom[p];
 							for (int k = 1; k <= p; ++k)
 							{
-								shiftMom += getBinom(p, k) * multz(chld.mom[p - k], h[k - 1]);
-#ifdef calcOp
-								op += 6;
-#endif
+								shiftMom += getBinom(p, k) *  multz(chld.mom[p - k], h[k - 1]);
+								ADDOP(2);
 							}//for k
 							cl.mom[p] += shiftMom;
 						}//for m
+						
 					}//for s
 				}//single				
 			}//parallel
@@ -418,20 +422,25 @@ namespace BH
 			if (pans) //если дерево из панелей
 			{
 				const auto & panel = pointsCopy[mortonCodes[cl.range[0]].originNumber];
-				for (int p = 0; p <= order; p += 2)
+				for (int p = 0; p <= prm.order; p += 2)
 					cl.mom[p] = panel.Mpan[p] * panel.g();
+				ADDOP(prm.order/2);
 #ifdef linScheme
-				for (int p = 1; p <= order; p += 2)
+				for (int p = 1; p <= prm.order; p += 2)
 					cl.mom[p] = panel.Mpan[p] * panel.gamLin;
 #ifdef asympScheme
 				if (panel.MpanAs.size() > 0)
-				{
-					//std::cout << "pnl# = " << mortonCodes[cl.range[0]].originNumber << std::endl;
-					for (int p = 1; p <= order; ++p)
-						cl.mom[p] += panel.MpanAs[p] * panel.gamLin;  //// %%%%%%%%%%%%%%%%%% += или +
+				{					
+					for (int p = 1; p <= prm.order; ++p)
+						cl.mom[p] += panel.MpanAs[p] * panel.gamLin;  
+					ADDOP(prm.order/2);
 				}
 #endif //asympScheme
+#else
+				for (int p = 1; p <= prm.order; p += 2)
+					cl.mom[p].toZero();//Для константной схемы
 #endif // linScheme
+				
 			}
 			else //если дерево из частиц
 			{
@@ -439,7 +448,7 @@ namespace BH
 				cl.mom[0][0] = mortonCodes[cl.range[0]].g;
 				cl.mom[0][1] = 0.0;
 
-				for (int p = 1; p <= order; ++p)
+				for (int p = 1; p <= prm.order; ++p)
 					cl.mom[p].toZero();
 			}//else
 		}//else
@@ -466,27 +475,28 @@ namespace BH
 			Point2D rr = r0 - r1;
 
 			double crit2 = rr.length2();
-#ifdef calcOp
-			op += 3;
-			op += 2;
-#endif
+			ADDOP(3);
+			ADDOP(3);
 			// если выполнен критерий дальности => считаем коэффициенты
-			if ((crit2 >= sqr((h0 + h + 2.0 * eps) / theta)))
+			if ((crit2 >= sqr((h0 + h + 2.0 * prm.eps) / prm.theta)))
 			{
 				Point2D  rr = r0 - r1;
 				rr *= 1.0 / rr.length2();
-#ifdef calcOp
-				op += 3;
-#endif			
+				ADDOP(3);
 				
 				Point2D varTheta = rr;
-				for (int diag = 0; diag < order; ++diag)
+				for (int diag = 0; diag < prm.order; ++diag)
 				{
 					for (int q = 0; q <= diag; ++q)
+					{
 						lt.E[q] += ((q % 2 ? -1.0 : 1.0) * iFact[diag - q]) * multzA(varTheta, wh.mom[diag - q]);
+						ADDOP(3);
+					}
 					varTheta = (diag + 1) * multz(varTheta, rr);
+					ADDOP(2);
 				}
-				lt.E[0] += iFact[order] * multzA(varTheta, wh.mom[order]);
+				lt.E[0] += iFact[prm.order] * multzA(varTheta, wh.mom[prm.order]);
+				ADDOP(2);
 
 			}//if crit2
 			else // если не выполнен критерий, то рекурсия 
@@ -519,7 +529,7 @@ namespace BH
 			Point2D velI, velLinI;
 			double dst2eps;
 
-			for (size_t i = lc.range[0]; i <= lc.range[1]; ++i)
+			for (int i = lc.range[0]; i <= lc.range[1]; ++i)
 			{
 				velI.toZero();
 				velLinI.toZero();
@@ -527,7 +537,7 @@ namespace BH
 				const Point2D& posI = mortonCodes[i].r; 
 
 				auto& rg = treeInf->mortonTree[lc.closeCells[k]].range;
-				for (size_t j = rg[0]; j <= rg[1]; ++j)
+				for (int j = rg[0]; j <= rg[1]; ++j)
 				{
 					auto& pt = treeInf->mortonCodes[j];
 
@@ -537,11 +547,9 @@ namespace BH
 						{
 							const Point2D& posJ = pt.r;
 							const double& gamJ = pt.g;
-							dst2eps = std::max((posI - posJ).length2(), eps2);
+							dst2eps = std::max((posI - posJ).length2(), prm.eps2);
 							velI += (gamJ / dst2eps) * (posI - posJ).kcross();
-#ifdef calcOp
-							op += 3;
-#endif
+							ADDOP(5);
 						}
 						else // панели влияют на точки
 						{
@@ -551,6 +559,7 @@ namespace BH
 							Point2D s = posI - pnl.panBegin;
 							double alpha = atan2(pp ^ s, pp & s);
 							double lambda = 0.5 * log((s & s) / (pp & pp));
+							ADDOP(11);
 
 							Point2D va = pp + s;
 							Point2D vb = pnl.tau;
@@ -558,58 +567,52 @@ namespace BH
 							Point2D u1 = (0.5 / pnl.len) * omega;
 
 							velI += (pnl.g() / pnl.len) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
+							ADDOP(18);
 #ifdef linScheme
 							velI += (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
+							ADDOP(7);
 #ifdef asympScheme						
-							for (int t = 0; t < nAngPoints; ++t)
+							for (int t = 0; t < prm.nAngPoints; ++t)
 							{
-								if (pt.originNumber == KK[t])
+								if (pt.originNumber == prm.KK[t])
 								{
-									//auto& pnl = pointsCopyPan[KK[t]];
-									//const Point2D& posI = mortonCodes[i].r;
-									//const Point2D& posI = {1, 1};
-									const auto& pnl = treeInf->pointsCopy[KK[t]];
+									const auto& pnl = treeInf->pointsCopy[prm.KK[t]];
 									Point2D u0 = pnl.tau;
 									Point2D pp = posI - pnl.panEnd;
 									Point2D s = posI - pnl.panBegin;
 									double alpha = atan2(pp ^ s, pp & s);
 									double lambda = 0.5 * log((s & s) / (pp & pp));
+									ADDOP(12);
 
 									Point2D va = pp + s;
 									Point2D vb = pnl.tau;
 									Point2D omega = (va & vb) * vb + (va ^ vb) * (vb.kcross());
 									Point2D u1 = (0.5 / pnl.len) * omega;
+									ADDOP(10);
 
 									double rotAngleForward = atan2((pnl.panEnd - pnl.panBegin)[1], (pnl.panEnd - pnl.panBegin)[0]);
-									//double rotAngleBackward = atan2((pnl.panBegin - pnl.panEnd)[1], (pnl.panBegin - pnl.panEnd)[0]);
 									Point2D varzFirst = { s[0] * cos(rotAngleForward) + s[1] * sin(rotAngleForward),
 										s[1] * cos(rotAngleForward) - s[0] * sin(rotAngleForward) };
-									/*Point2D varzLast = { pp[0] * cos(rotAngleBackward) + pp[1] * sin(rotAngleBackward),
-										pp[1] * cos(rotAngleBackward) - pp[0] * sin(rotAngleBackward) };*/
 
-									Point2D s1 = sFirst(varzFirst, q[t], p[t], pnl.len);
+									Point2D s1 = sFirst(varzFirst, prm.q[t], prm.p[t], pnl.len);
 									Point2D i1as1First = { s1[0] * cos(rotAngleForward) + s1[1] * sin(rotAngleForward),
 										-s1[1] * cos(rotAngleForward) + s1[0] * sin(rotAngleForward) };
 
-									/*Point2D s2 = sFirst(varzLast, q[t], p[t], pnl.len);
-									Point2D i1as1Last = { s2[0] * cos(rotAngleBackward) + s2[1] * sin(rotAngleBackward),
-										-s2[1] * cos(rotAngleBackward) + s2[0] * sin(rotAngleBackward) };*/
-
-
 									Point2D sub = (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
 
-									Point2D a1 = (-1.0 / (1.0 - (double)p[t] / q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
+									Point2D a1 = (-1.0 / (1.0 - (double)prm.p[t] / prm.q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
 									Point2D a2 = i1as1First.kcross();
 
 									Point2D add = (pnl.gamLin / pnl.len) * (a1 + a2);
 									velI -= sub;
 									velI += add;
+									ADDOP(35);
 								}
-								if (pt.originNumber == KKm[t])
+								if (pt.originNumber == prm.KKm[t])
 								{
 									//auto& pnl = pointsCopyPan[KKm[t]];
 									//const Point2D& posI = { 1, 1 };
-									const auto& pnl = treeInf->pointsCopy[KKm[t]];
+									const auto& pnl = treeInf->pointsCopy[prm.KKm[t]];
 									Point2D u0 = pnl.tau;
 									Point2D pp = posI - pnl.panEnd;
 									Point2D s = posI - pnl.panBegin;
@@ -621,26 +624,20 @@ namespace BH
 									Point2D omega = (va & vb) * vb + (va ^ vb) * (vb.kcross());
 									Point2D u1 = (0.5 / pnl.len) * omega;
 
-									//double rotAngleForward = atan2((pnl.panEnd - pnl.panBegin)[1], (pnl.panEnd - pnl.panBegin)[0]);
 									double rotAngleBackward = atan2((pnl.panBegin - pnl.panEnd)[1], (pnl.panBegin - pnl.panEnd)[0]);
-									/*Point2D varzFirst = { s[0] * cos(rotAngleForward) + s[1] * sin(rotAngleForward),
-										s[1] * cos(rotAngleForward) - s[0] * sin(rotAngleForward) };*/
 									Point2D varzLast = { pp[0] * cos(rotAngleBackward) + pp[1] * sin(rotAngleBackward),
 										pp[1] * cos(rotAngleBackward) - pp[0] * sin(rotAngleBackward) };
 
-									/*Point2D s1 = sFirst(varzFirst, q[t], p[t], pnl.len);
-									Point2D i1as1First = { s1[0] * cos(rotAngleForward) + s1[1] * sin(rotAngleForward),
-										-s1[1] * cos(rotAngleForward) + s1[0] * sin(rotAngleForward) };*/
-
-									Point2D s2 = sFirst(varzLast, q[t], p[t], pnl.len);
+									Point2D s2 = sFirst(varzLast, prm.q[t], prm.p[t], pnl.len);
 									Point2D i1as1Last = { s2[0] * cos(rotAngleBackward) + s2[1] * sin(rotAngleBackward),
 										-s2[1] * cos(rotAngleBackward) + s2[0] * sin(rotAngleBackward) };
 
 									Point2D sub = (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
-									Point2D add = (pnl.gamLin / pnl.len) * ((-1.0 / (1.0 - (double)p[t] / q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross() + i1as1Last.kcross());
+									Point2D add = (pnl.gamLin / pnl.len) * ((-1.0 / (1.0 - (double)prm.p[t] / prm.q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross() + i1as1Last.kcross());
 
 									velI -= sub;
 									velI += add;
+									ADDOP(35);
 								}
 							}
 #endif//asympScheme
@@ -665,10 +662,11 @@ namespace BH
 						Point2D u1 = (0.5 / pnlI.len) * omega;
 
 						velI -= (pt.g / pnlI.len) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
+						ADDOP(30);
 #ifdef linScheme
 						velLinI -= (pt.g / pnlI.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnlI.tau).kcross();
+						ADDOP(7);
 #endif
-
 					}//else if (!pans)
 
 				}//for j
@@ -703,11 +701,11 @@ namespace BH
 			//Локальные переменные для цикла
 			Point2D velI, velIlin;
 
-			auto& rg = mortonTree[lc.closeCells[k]].range;
+			const auto& rg = mortonTree[lc.closeCells[k]].range;
 
 			//#pragma omp parallel for schedule(dynamic,10) ordered
 			//Обязательно должно быть закрыто распараллеливание!
-			for (size_t i = lc.range[0]; i <= lc.range[1]; ++i)
+			for (int i = lc.range[0]; i <= lc.range[1]; ++i)
 			{
 				PointsCopy& itDop = pointsCopy[mortonCodes[i].originNumber];
 
@@ -720,6 +718,7 @@ namespace BH
 				double ileni = 1.0 / dilen;
 
 				const Point2D& taui = ileni * di;
+				ADDOP(6);
 
 				const double cftReserve = 0.01;
 				if (k == 0)
@@ -728,14 +727,16 @@ namespace BH
 					itDop.i00.reserve(int(cftReserve * n));
 
 #ifdef linScheme
-					itDop.i01.resize(0); itDop.i10.resize(0); itDop.i11.resize(0);
+					itDop.i01.resize(0); 
+					itDop.i10.resize(0); 
+					itDop.i11.resize(0);
 					itDop.i01.reserve(int(cftReserve * n));
 					itDop.i10.reserve(int(cftReserve * n));
 					itDop.i11.reserve(int(cftReserve * n));
 #endif
 				}
 
-				for (size_t j = rg[0]; j <= rg[1]; ++j)
+				for (int j = rg[0]; j <= rg[1]; ++j)
 				{
 					auto& pt = pointsCopy[mortonCodes[j].originNumber]; //(mortonCodes[j].originNumber)-я панель
 					const Point2D& posJ = pt.r();
@@ -754,7 +755,6 @@ namespace BH
 						s1 = itDop.panEnd - pt.panBegin;
 						p2 = itDop.panBegin - pt.panEnd;
 						s2 = itDop.panBegin - pt.panBegin;
-
 
 						alpha = { \
 									isAfter(pt, itDop) ? 0.0 : Alpha(s2, s1), \
@@ -776,9 +776,10 @@ namespace BH
 
 						i00 = ileni * ilenj * (alpha[0] * v00[0] + alpha[1] * v00[1] + alpha[2] * v00[2] \
 							+ (lambda[0] * v00[0] + lambda[1] * v00[1] + lambda[2] * v00[2]).kcross());
-
+						ADDOP(21);
 #ifdef linScheme
 						double s1len2 = s1.length2();
+						ADDOP(2);
 
 						v01 = {
 								0.5 / (djlen) * (((p1 + s1) & tauj) * Omega(s1, taui, tauj) - s1len2 * taui),
@@ -787,6 +788,7 @@ namespace BH
 
 						i01 = ileni * ilenj * ((alpha[0] + alpha[2]) * v01[0] + (alpha[1] + alpha[2]) * v01[1]\
 							+ (((lambda[0] + lambda[2]) * v01[0] + (lambda[1] + lambda[2]) * v01[1]) - 0.5 * dilen * tauj).kcross());
+						ADDOP(27);
 
 						v10 = {
 								-0.5 / dilen * (((s1 + s2) & taui) * Omega(s1, taui, tauj) - s1len2 * tauj),
@@ -795,6 +797,8 @@ namespace BH
 
 						i10 = ileni * ilenj * ((alpha[0] + alpha[2]) * v10[0] + alpha[2] * v10[1] \
 							+ (((lambda[0] + lambda[2]) * v10[0] + lambda[2] * v10[1]) + 0.5 * djlen * taui).kcross());
+						ADDOP(27);
+
 
 						v11 = {
 							1.0 / (12.0 * dilen * djlen) * \
@@ -808,49 +812,33 @@ namespace BH
 						i11 = ileni * ilenj * ((alpha[0] + alpha[2]) * v11[0] + (alpha[1] + alpha[2]) * v11[1] + alpha[2] * v11[2]\
 							+ ((lambda[0] + lambda[2]) * v11[0] + (lambda[1] + lambda[2]) * v11[1] + lambda[2] * v11[2] \
 								+ 1.0 / 12.0 * (djlen * taui + dilen * tauj - 2.0 * Omega(s1, taui, tauj))).kcross());
+						ADDOP(50);
 
 #ifdef asympScheme
-						for (int t = 0; t < nAngPoints; t++) {
-							if (mortonCodes[j].originNumber == KK[t])
+						for (int t = 0; t < prm.nAngPoints; t++) {
+							if (mortonCodes[j].originNumber == prm.KK[t])
 							{
 
 								H01[0].toZero();
 								H01[1].toZero();
 
-								//if (mortonCodes[i].originNumber == 0) 
-									H01 = StoConstFrom1({ pt.panBegin, pt.panEnd }, { itDop.panBegin, itDop.panEnd }, t);
-								//std::cout << "H[ " << mortonCodes[i].originNumber << "] = " << H01 << std::endl;
-
-								i01 = /*taui &*/ (ilenj * ileni * PI * 2.0 * (H01[0].kcross())) - (1.0 / (1.0 - mu[t]) * i00);
+								H01 = StoConstFrom1({ pt.panBegin, pt.panEnd }, { itDop.panBegin, itDop.panEnd }, t, prm);
 								
-								double ttt = (i00 & taui) / (2.0*PI) / ilenj;
-								//std::cout << ttt << std::endl;
-
-								i11 = /*taui &*/ (ilenj * ileni * PI * 2.0 * ((H01[1]-0.5 * H01[0]).kcross())) - (1.0 / (1.0 - mu[t]) * i10);
-
-								//double i001 = (taui & i01);
-								//if (mortonCodes[j].originNumber == KK[t])
-								//	tempBuffer[mortonCodes[i].originNumber] = i001;
-
+								i01 = /*taui &*/ (ilenj * ileni * DPI * (H01[0].kcross())) - (1.0 / (1.0 - prm.mu[t]) * i00);
+								i11 = /*taui &*/ (ilenj * ileni * DPI * ((H01[1]-0.5 * H01[0]).kcross())) - (1.0 / (1.0 - prm.mu[t]) * i10);
+								ADDOP(16);
 							}
 
-							if (mortonCodes[j].originNumber == KKm[t])
+							if (mortonCodes[j].originNumber == prm.KKm[t])
 							{
 								H11[0].toZero();
 								H11[1].toZero();
 
-								//if (mortonCodes[i].originNumber == 1)
-								H11 = StoConstFrom1({ pt.panEnd, pt.panBegin }, { itDop.panEnd, itDop.panBegin }, t);
-								//std::cout << "H[ " << mortonCodes[i].originNumber << "] = " << H11 << std::endl;
+								H11 = StoConstFrom1({ pt.panEnd, pt.panBegin }, { itDop.panEnd, itDop.panBegin }, t, prm);
 
-								i01 = ileni * ilenj * PI * 2.0 * H11[0].kcross() - (1.0 / (1.0 - mu[t]) * i00);
-								i11 = -(ileni * ilenj * PI * 2.0 * (H11[1] - 0.5 * H11[0]).kcross() + (1.0 / (1.0 - mu[t]) * i10));
-
-
-								//double i001 = taui & i11;
-								//
-								//if (mortonCodes[j].originNumber == KKm[t])
-								//	tempBuffer[mortonCodes[i].originNumber] = i001;
+								i01 = ileni * ilenj * DPI * H11[0].kcross() - (1.0 / (1.0 - prm.mu[t]) * i00);
+								i11 = -(ileni * ilenj * DPI * (H11[1] - 0.5 * H11[0]).kcross() + (1.0 / (1.0 - prm.mu[t]) * i10));
+								ADDOP(16);
 							}
 						}
 #endif
@@ -860,15 +848,22 @@ namespace BH
 						if (isAfter(itDop, pt))
 						{
 							itDop.a = i00 * IDPI;
+							ADDOP(2);
+
 #ifdef linScheme
 							itDop.a1 = i11 * IDPI;
+							ADDOP(2);
 #endif
 						}
 						if (isAfter(pt, itDop))
 						{
 							itDop.c = i00 * IDPI;
+							ADDOP(2);
+
 #ifdef linScheme
 							itDop.c1 = i11 * IDPI;
+							ADDOP(2);
+
 #endif
 						}
 //#pragma omp ordered
@@ -876,10 +871,12 @@ namespace BH
 						SizeCheck(itDop.i00);
 						itDop.i00.push_back(i00);
 
-						if (itDop.i00.size() > 5000)
-							std::cout << "itDop.i00.size = " << itDop.i00.size() << std::endl;
+						//if (itDop.i00.size() > 5000)
+						//	std::cout << "itDop.i00.size = " << itDop.i00.size() << std::endl;
 
 						velI += gamJ * i00;
+						ADDOP(2);
+
 #ifdef linScheme					
 
 						SizeCheck(itDop.i01);
@@ -893,6 +890,8 @@ namespace BH
 
 						velI += gamJlin * i01;
 						velIlin += gamJ * i10 + gamJlin * i11;
+						ADDOP(6);
+
 #endif
 						}
 					}//if (posI != posJ)
@@ -920,7 +919,7 @@ namespace BH
 			Point2D velI, velIlin;			
 			auto& rg = mortonTree[lc.closeCells[k]].range;
 			int inum = 0;
-			for (size_t i = lc.range[0]; i <= lc.range[1]; ++i, ++inum)
+			for (int i = lc.range[0]; i <= lc.range[1]; ++i, ++inum)
 			{
 				PointsCopy& itDop = pointsCopy[mortonCodes[i].originNumber];
 
@@ -929,7 +928,7 @@ namespace BH
 
 				const Point2D& posI = itDop.r();
 				
-				for (size_t j = rg[0]; j <= rg[1]; ++j)
+				for (int j = rg[0]; j <= rg[1]; ++j)
 				{
 					const PointsCopy& itDop2 = pointsCopy[mortonCodes[j].originNumber];
 					const Point2D& posJ = itDop2.r();
@@ -941,11 +940,15 @@ namespace BH
 					if (posI != posJ)
 					{
 						velI += gamJ * (itDop.i00[s[inum]]);
+						ADDOP(2);
+
 #ifdef linScheme					
 						velI += gamJlin * (itDop.i01[s[inum]]);
 						velIlin += gamJ * (itDop.i10[s[inum]]) + gamJlin * (itDop.i11[s[inum]]);
+						ADDOP(6);
+
 #endif
-						s[inum]++;
+						++s[inum];
 					}
 				}//for j
 			itDop.veloCopy += velI;
@@ -988,10 +991,14 @@ namespace BH
 
 			double alpha = Alpha(p, s);
 			velI -= gamJ * alpha;
+			ADDOP(2);
+
 #ifdef linScheme
 			Point2D u1 = 0.5 / di.length() * Omega(p + s, taui, taui);
 			double lambda = Lambda(p, s);
 			velILin -= gamJ * (alpha * (u1 & taui) + lambda * (u1 & (-taui.kcross())));
+			ADDOP(16);
+
 #endif // linScheme
 		}
 	}//GetInfluenceFromVorticesToPanel(...)
@@ -1021,14 +1028,16 @@ namespace BH
 
 		std::vector<double> velI(shDim, 0.0);
 
-		for (size_t i = lc.range[0]; i <= lc.range[1]; ++i)
+		for (int i = lc.range[0]; i <= lc.range[1]; ++i)
 		{
 			auto& panel = pointsCopy[mortonCodes[i].originNumber];
 			GetInfluenceFromVorticesToPanel(panel, vtxClose.data(), vtxClose.size(), velI);
 
 			for (size_t j = 0; j < shDim; ++j)
+			{
 				velI[j] *= IDPI / panel.len;
-
+				ADDOP(3);
+			}
 			panel.velTau = velI[0];
 #ifdef linScheme
 			panel.velTauLin = velI[1];
@@ -1042,27 +1051,21 @@ namespace BH
 	void MortonTree::CalcVeloTaylorExpansion(int lowCell)
 	{
 		auto& lc = mortonTree[lowCell];
-		for (size_t i = lc.range[0]; i <= lc.range[1]; ++i)
+		for (int i = lc.range[0]; i <= lc.range[1]; ++i)
 		{
-			//PointsCopy& itDop = pointsCopy[mortonCodes[i].originNumber];
-			//Point2D deltaPos = itDop.r() - lc.centre;
 			Point2D deltaPos = mortonCodes[i].r - lc.center;
 			Point2D v = lc.E[0];
-//!!!!!!!!!!%%%%%%%%%
+
 #ifndef infToPanels
 			Point2D hh = deltaPos;
-			for (int k = 1; k < order - 1; ++k) 
+			for (int k = 1; k < prm.order - 1; ++k) 
 			{
 				v += iFact[k] * multzA(lc.E[k], hh);
 				hh = multz(hh, deltaPos);
-#ifdef calcOp
-				op += 10;
-#endif
+				ADDOP(2);
 			}//for k
-			v += iFact[order-1] * multzA(lc.E[order-1], hh);
-#ifdef calcOp
-			op += 6;
-#endif
+			v += iFact[prm.order-1] * multzA(lc.E[prm.order-1], hh);
+			ADDOP(2);
 #else
 			PointsCopy& itDop = pointsCopy[mortonCodes[i].originNumber];
 
@@ -1076,20 +1079,26 @@ namespace BH
 			Point2D mulM = km = dPos2 - rPan;
 
 			Point2D taudL = (0.5 / itDop.len) * itDop.tau;
+			ADDOP(5);
+
 
 #ifdef linScheme
 			Point2D vL;
 			vL.toZero();
 			Point2D taudLc = taudL;
 #endif
-			for (int k = 1; k < order; ++k)
+			for (int k = 1; k < prm.order; ++k)
 			{
 				mulP = multz(mulP, kp);
 				mulM = multz(mulM, km);
 				taudL /= 2.0;
-				v += iFact[k + 1] * multz(lc.E[k], multzA(taudL, mulP - mulM));				
+				v += iFact[k + 1] * multz(lc.E[k], multzA(taudL, mulP - mulM));	
+				ADDOP(2);
+
 #ifdef linScheme
 				vL += (iFact[k + 1] / (k + 2)) * multz(lc.E[k], multzA(multz(taudL, taudLc), multz(mulP, (k + 1) * rPan - dPos2) + multz(mulM, (k + 1) * rPan + dPos2)));
+				ADDOP(3);
+
 #endif
 			}
 #endif // infToPanels
@@ -1113,6 +1122,7 @@ namespace BH
 			auto& pnt = pointsCopy[mortonCodes[j].originNumber];
 			pnt.velTau += pnt.veloCopy & pnt.tau;
 			pnt.velTauLin += pnt.veloCopyLin & pnt.tau;
+			ADDOP(4);
 		}
 	}//AddVelo(...)
 
@@ -1308,6 +1318,65 @@ namespace BH
 			memcpy(m, m_temp, n * sizeof(TParticleCode));
 		}
 	}
+
+	void MortonTree::getStatistics(int& numParticles, int& treshold, std::pair<int, int>& partLevel, std::pair<int, int>& leafsLevel, int& lowLevelCells) const
+	{
+		numParticles = (int)pointsCopy.size();
+		treshold = maxTreeLevel;
+
+		int leafsLevelMin = (int)1e+9;
+		int leafsLevelMax = 0;
+		for (int q = 0; q < numParticles - 1; ++q)
+		{
+			if (!mortonTree[mortonTree[q].parent].leaf)
+			{
+				if (mortonTree[q].leaf)
+				{
+					int level = mortonTree[q].level;
+
+					if (level > leafsLevelMax)
+						leafsLevelMax = level;
+
+					if (level < leafsLevelMin)
+						leafsLevelMin = level;
+
+					continue;
+				}
+
+				if ((mortonTree[mortonTree[q].child[0]].particle) || (mortonTree[mortonTree[q].child[1]].particle))
+				{
+					int level = mortonTree[q].level + 1;
+					if (level > leafsLevelMax)
+						leafsLevelMax = level;
+
+					if (level < leafsLevelMin)
+						leafsLevelMin = level;
+
+					continue;
+				}
+			}
+		}
+		leafsLevel = { leafsLevelMin, leafsLevelMax };
+
+
+		int partLevelMin = (int)1e+9;
+		int partLevelMax = 0;
+		for (int q = 0; q < numParticles - 1; ++q)
+		{
+			if ((mortonTree[mortonTree[q].child[0]].particle) || (mortonTree[mortonTree[q].child[1]].particle))
+			{
+				int level = mortonTree[q].level;
+				if (level > partLevelMax)
+					partLevelMax = level;
+
+				if (level < partLevelMin)
+					partLevelMin = level;
+			}
+		}
+		partLevel = { partLevelMin + 1, partLevelMax + 1 };
+		lowLevelCells = (int)mortonLowCells.size();
+	}
+
 
 }//namespace BH
 

@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.2    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
+|        #####   ##  ##         |                            | Version 1.3    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -31,49 +31,39 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.2
-\date 22 октября 2022 г.
+\version 1.3
+\date 08 декабря 2022 г.
 */
-
-#include <algorithm>
-#include <fstream> 
-#include <iostream>
-#include <vector>
-
-#include "omp.h"
 
 #include "BarnesHut.h"
 #include "Logo.h"
 #include "Methods.h"
-#include "Params.h"
-#include "Tree.h"
-#include "Vortex2D.h"
-
-using std::ifstream;
-using std::ofstream;
+#include "Preprocessor.h"
+#include "StreamParser.h"
 
 using namespace BH;
 
 #include <functional>
 #include <variant>
 
-using fA = std::function<void(std::vector<Point2D>&, const std::vector<Vortex2D>&)>;
-using fB = std::function<void(std::vector<Point2D>&, const std::vector<Vortex2D>&, const std::vector<Vortex2D>&, const std::vector <Point2D>&, const std::vector<double>&, const std::vector<Vortex2D>& wakeVP)>;
+using fA = std::function<void(const params& prm, std::vector<Point2D>&, const std::vector<Vortex2D>&)>;
+using fB = std::function<void(const params& prm, std::vector<Point2D>&, const std::vector<Vortex2D>&, const std::vector<Vortex2D>&, const std::vector <Point2D>&, const std::vector<double>&, const std::vector<Vortex2D>& wakeVP)>;
 
 using varfunc = std::variant<fA, fB>;
 
 
-void CalcVortexVelo();
-void CalcVPVelo();
-void SolveLinearSystem();
+void CalcVortexVelo(const params& prm);
+void CalcVPVelo(const params& prm);
+void SolveLinearSystem(const params& prm);
 
 //для расчета wake на wake
-void BiotSavartWakeToWake(std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake);
+void BiotSavartWakeToWake(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake);
 //для расчета wake на wakeVP
-void BiotSavartWakeToWakeVP(std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake, const std::vector<Vortex2D>& wakeAirfoil, const std::vector <Point2D>& dataAirfoil, const std::vector<double>& sec, const std::vector<Vortex2D>& wakeVP);
+void BiotSavartWakeToWakeVP(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake, const std::vector<Vortex2D>& wakeAirfoil, const std::vector <Point2D>& dataAirfoil, const std::vector<double>& sec, const std::vector<Vortex2D>& wakeVP);
 
-long long BH::op;
 
+
+long long BH::op, op_fast, op_direct;
 
 void CheckDefines()
 {
@@ -97,33 +87,120 @@ void CheckDefines()
 	}
 }
 
+void Start(std::unique_ptr<VMlib::StreamParser>& parser, params& prm)
+{
+#ifdef calcOp
+	omp_set_num_threads(1);
+#ifdef OLD_OMP
+	omp_set_nested(0);
+#else
+	// Максимальное число уровней вложенности распараллеливания
+	omp_set_max_active_levels(0);
+#endif
+#endif
+
+
+	parser->get("vortexFile", prm.vortexFile);
+	parser->get("NumOfLevelsVortex", prm.NumOfLevelsVortex);
+
+	parser->get("wakeShift", prm.wakeShift);
+
+#if defined CALCSHEET || defined CALCVP
+	parser->get("airfoilFile", prm.airfoilFile);
+	parser->get("NumOfLevelsAirfoil", prm.NumOfLevelsAirfoil);
+
+	parser->get("vpFile", prm.vpFile);
+	parser->get("NumOfLevelsVP", prm.NumOfLevelsVP);
+
+#ifdef asympScheme
+	parser->get("nAngPoints", prm.nAngPoints);
+	parser->get("KK", prm.KK);
+	parser->get("KKm", prm.KKm);
+	parser->get("p", prm.p);
+	parser->get("q", prm.q);
+
+	for (int i = 0; i < prm.nAngPoints; ++i)
+	{
+		prm.mu.push_back((double)prm.p[i] / (double)prm.q[i]);
+	}
+#endif //asympScheme
+#endif 
+
+	parser->get("eps", prm.eps);
+	prm.eps2 = prm.eps * prm.eps;
+	parser->get("velInf", prm.velInf);
+	parser->get("task", prm.task);
+	parser->get("order", prm.order);
+	parser->get("theta", prm.theta);
+	parser->get("compare", prm.compare);
+	parser->get("runs", prm.runs);
+#ifdef calcOp
+	prm.runs = 1;
+#endif
+
+	parser->get("BSfromFile", prm.BSfromFile);
+	parser->get("save", prm.save);
+
+	int coresForTree;
+	parser->get("coresForTree", coresForTree);
+	if (coresForTree == 0)
+		coresForTree = omp_get_max_threads();
+#ifdef calcOp
+	coresForTree = 1;
+#endif
+	prm.maxLevelOmp = (int)std::ceil(log2(coresForTree)) - 1;
+
+#if defined CALCSHEET
+	parser->get("epsGMRES", prm.epsGMRES);
+	parser->get("residualShow", prm.residualShow);
+	parser->get("NumOfLevelsVP", prm.NumOfLevelsVP);
+#endif 
+
+	PrintLogoToStream(std::cout);
+	PrintProperties(prm);
+
+#ifdef CALCVORTEXVELO	
+	CalcVortexVelo(prm);
+#endif
+
+#ifdef CALCSHEET	
+	//Решение системы линейных уравнений	
+	SolveLinearSystem(prm);
+#endif
+
+#ifdef CALCVP		
+	CalcVPVelo(prm);
+#endif
+}
+
+
 int main(int argc, char** argv)
 {
 	CheckDefines();
 
-	PrintLogoToStream(std::cout);
-	PrintProperties();
+	const std::string optFileDefault = "options.txt";	
+	params prm;
 	
-#ifdef CALCVORTEXVELO
-	//Расчет скоростей, генерируемых облаком точек, в этих же точках
-	CalcVortexVelo();
-#endif
+	VMlib::LogStream info;
+	info.assignStream(&std::cout, "info");		
+	std::stringstream optionsFile(VMlib::Preprocessor(std::string("../") + ((argc > 1) ? std::string(argv[1]) : optFileDefault)).resultString);
+	std::stringstream defaultFile(VMlib::Preprocessor(std::string("../defaults.txt")).resultString);
+	auto parser = std::make_unique<VMlib::StreamParser>(info, "parser", optionsFile, defaultFile);
 
-#ifdef CALCSHEET
-	//Решение системы линейных уравнений
-	SolveLinearSystem();
-#endif
-
-#ifdef CALCVP
-	CalcVPVelo();
-#endif	
+	Start(parser, prm);
 }
 
-void ReadWake(const std::string fileWake, std::vector<Vortex2D>& wakeVortex, bool readGamma)
+
+void ReadWake(const std::string fileWake, std::vector<Vortex2D>& wakeVortex, bool readGamma, const Point2D& shift)
 {
 	int n;
-	ifstream infile(fileWake);
+	std::ifstream infile(fileWake);
 
+	if (!infile.good())
+	{
+		std::cout << "File " << fileWake << " is not found. Error!" << std::endl;
+		exit(-2);
+	}
 	infile >> n;
 	wakeVortex.resize(n);
 
@@ -131,8 +208,10 @@ void ReadWake(const std::string fileWake, std::vector<Vortex2D>& wakeVortex, boo
 	{
 		for (int j = 0; j < 2; ++j)
 			infile >> wakeVortex[i].r()[j];
-		if (readGamma)
-			infile >> wakeVortex[i].g();
+		wakeVortex[i].r() += shift;
+
+		if (readGamma)		
+			infile >> wakeVortex[i].g();				
 	} //for i
 	infile.close();
 }//ReadWake(...)
@@ -141,7 +220,12 @@ void ReadWake(const std::string fileWake, std::vector<Vortex2D>& wakeVortex, boo
 void ReadPanels(const std::string fileAirfoil, std::vector<Vortex2D>& wakeAirfoil, std::vector<Point2D>& dataAirfoil)
 {
 	//загрузка файла с параметрами панелей
-	ifstream infileAirfoil(fileAirfoil);
+	std::ifstream infileAirfoil(fileAirfoil);
+	if (!infileAirfoil.good())
+	{
+		std::cout << "File " << fileAirfoil << " is not found. Error!" << std::endl;
+		exit(-2);
+	}
 
 	int nAirfoil;
 	infileAirfoil >> nAirfoil;
@@ -172,17 +256,28 @@ void ReadPanels(const std::string fileAirfoil, std::vector<Vortex2D>& wakeAirfoi
 }//ReadPanels(...)
 
 
-void ReadPanelsWithSolution(const std::string fileAirfoil, std::vector<Vortex2D>& wakeAirfoil, std::vector<Point2D>& dataAirfoil, std::vector<double>& sec)
+void ReadPanelsWithSolution(const params& prm, std::vector<Vortex2D>& wakeAirfoil, std::vector<Point2D>& dataAirfoil, std::vector<double>& sec)
 {
-	ReadPanels(fileAirfoil, wakeAirfoil, dataAirfoil);
+	ReadPanels(prm.airfoilFile, wakeAirfoil, dataAirfoil);
 
-#ifndef asympScheme
-	ifstream infileSolution(fileAirfoil + "Sol");
+#ifdef linScheme
+#ifdef asympScheme
+	std::string suffix = "-as";
 #else
-	ifstream infileSolution(fileAirfoil + "SolAs");
-#endif
+	std::string suffix = "-linear";
+#endif//asympScheme
+#else
+	std::string suffix = "-const";
+#endif//linScheme
 
-	int nAirfoil = wakeAirfoil.size();
+	std::ifstream infileSolution("../../res/Exact" + prm.task + suffix + ".txt");
+	if (!infileSolution.good())
+	{
+		std::cout << "File " << "../../res/Exact" << prm.task << suffix << ".txt" << " is not found. Error!" << std::endl;
+		exit(-2);
+	}
+
+	int nAirfoil = (int)wakeAirfoil.size();
 	for (int i = 0; i < nAirfoil; ++i)
 		infileSolution >> wakeAirfoil[i].g();
 
@@ -197,6 +292,7 @@ void ReadPanelsWithSolution(const std::string fileAirfoil, std::vector<Vortex2D>
 
 
 struct CallBiotSavart {
+	const params& prm;
 	const std::vector<Vortex2D>& wake;
 	const std::vector<Vortex2D>& wakeAirfoil;
 	const std::vector<Point2D>& dataAirfoil;
@@ -206,21 +302,21 @@ struct CallBiotSavart {
 	//std::vector<Point2D>& velo;
 	std::vector<Point2D>& veloBS;
 	   
-	void operator()(fA foo) { foo(veloBS, wake); }
-	void operator()(fB foo) { foo(veloBS, wake, wakeAirfoil, dataAirfoil, sec, wakeVP); };
+	void operator()(fA foo) { foo(prm, veloBS, wake); }
+	void operator()(fB foo) { foo(prm, veloBS, wake, wakeAirfoil, dataAirfoil, sec, wakeVP); };
 
 	static const std::vector<Vortex2D>& emptyVortex2D;
 	static const std::vector<Point2D>& emptyPoint2D;
 	static const std::vector<double>& emptyDouble;
 
 //#pragma warning( push )
-#pragma warning( disable : 3295 )
-	CallBiotSavart(std::vector<Point2D>& veloBS_, const std::vector<Vortex2D>& wake_) 
-		: wake(wake_), veloBS(veloBS_), wakeAirfoil(emptyVortex2D), dataAirfoil(emptyPoint2D), sec(emptyDouble), wakeVP(emptyVortex2D) {};
+//#pragma warning( disable : 3295 )
+	CallBiotSavart(const params& prm_, std::vector<Point2D>& veloBS_, const std::vector<Vortex2D>& wake_)
+		: prm(prm_), wake(wake_), veloBS(veloBS_), wakeAirfoil(emptyVortex2D), dataAirfoil(emptyPoint2D), sec(emptyDouble), wakeVP(emptyVortex2D) {};
 //#pragma warning( pop )
 
-	CallBiotSavart(std::vector<Point2D>& veloBS_, const std::vector<Vortex2D>& wake_, const std::vector<Vortex2D>& wakeAirfoil_, const std::vector<Point2D>& dataAirfoil_, const std::vector<double>& sec_, const std::vector<Vortex2D>& wakeVP_) 
-		: wake(wake_), veloBS(veloBS_), wakeAirfoil(wakeAirfoil_), dataAirfoil(dataAirfoil_), sec(sec_), wakeVP(wakeVP_) {};
+	CallBiotSavart(const params& prm_, std::vector<Point2D>& veloBS_, const std::vector<Vortex2D>& wake_, const std::vector<Vortex2D>& wakeAirfoil_, const std::vector<Point2D>& dataAirfoil_, const std::vector<double>& sec_, const std::vector<Vortex2D>& wakeVP_)
+		: prm(prm_), wake(wake_), veloBS(veloBS_), wakeAirfoil(wakeAirfoil_), dataAirfoil(dataAirfoil_), sec(sec_), wakeVP(wakeVP_) {};
 };
 
 const std::vector<Vortex2D>& CallBiotSavart::emptyVortex2D = {};
@@ -228,16 +324,16 @@ const std::vector<Point2D>& CallBiotSavart::emptyPoint2D = {};
 const std::vector<double>& CallBiotSavart::emptyDouble = {};
 
 
-void CompareVelocity(varfunc BiotSavartFunction, CallBiotSavart& callFunc, const std::vector<Point2D>& velo)
+void CompareVelocity(const params& prm, varfunc BiotSavartFunction, CallBiotSavart& callFunc, const std::vector<Point2D>& velo, const std::string& suffix)
 {
 	PrintAccuracyHead();
 
 	callFunc.veloBS.resize(velo.size());
 
-	bool realBSfromFile = BSfromFile;
-	if (BSfromFile)
+	bool realBSfromFile = prm.BSfromFile;
+	if (prm.BSfromFile)
 	{
-		std::ifstream f("../../res/velBS" + task + ".txt");
+		std::ifstream f("../../res/velBS" + prm.task + suffix + ".txt");
 		if (realBSfromFile = f.good())
 			std::cout << "File with Biot-Savart results is found, loading it... ";
 		else
@@ -253,7 +349,7 @@ void CompareVelocity(varfunc BiotSavartFunction, CallBiotSavart& callFunc, const
 		std::cout << "done!" << std::endl;
 		std::cout << "Time (Biot-Savart): " << tBSFinish - tBSStart << " s" << std::endl;
 
-		std::ofstream velFileBS("../../res/velBS" + task + ".txt");
+		std::ofstream velFileBS("../../res/velBS" + prm.task + suffix + ".txt");
 		velFileBS.precision(16);
 		for (int i = 0; i < (int)callFunc.veloBS.size(); ++i)
 			velFileBS << callFunc.veloBS[i][0] << " " << callFunc.veloBS[i][1] << std::endl;
@@ -261,7 +357,7 @@ void CompareVelocity(varfunc BiotSavartFunction, CallBiotSavart& callFunc, const
 	}
 	else
 	{
-		std::ifstream velFileBS("../../res/velBS" + task + ".txt");
+		std::ifstream velFileBS("../../res/velBS" + prm.task + suffix + ".txt");
 
 		for (int i = 0; i < (int)callFunc.veloBS.size(); ++i)
 			velFileBS >> callFunc.veloBS[i][0] >> callFunc.veloBS[i][1];
@@ -281,9 +377,9 @@ void CompareVelocity(varfunc BiotSavartFunction, CallBiotSavart& callFunc, const
 }//CompareVelocity
 
 
-void SaveVelocity(const std::vector<Point2D>& velo)
+void SaveVelocity(const params& prm, const std::vector<Point2D>& velo, const std::string& suffix)
 {
-	std::ofstream velFile("../../res/velBH" + task + ".txt");
+	std::ofstream velFile("../../res/velBH" + prm.task + suffix + ".txt");
 	velFile.precision(16);
 	for (int i = 0; i < (int)velo.size(); ++i)
 		velFile << velo[i][0] << " " << velo[i][1] << std::endl;
@@ -293,11 +389,11 @@ void SaveVelocity(const std::vector<Point2D>& velo)
 
 
 //Расчет скоростей, генерируемых облаком точек, в этих же точках
-void CalcVortexVelo()
+void CalcVortexVelo(const params& prm)
 {
 	std::vector<Vortex2D> wake;
-	ReadWake(vortexFile, wake, true); //true - значит, читать тройки (x, y, \Gamma)
-	PrintConfiguration(wake.size());
+	ReadWake(prm.vortexFile, wake, true, prm.wakeShift); //true - значит, читать тройки (x, y, \Gamma)
+	PrintConfiguration(prm, (int)wake.size(), 0, 0);
 
 	std::vector<Point2D> velo, veloBS;
 
@@ -305,7 +401,7 @@ void CalcVortexVelo()
 	double runtime, minruntime=1e+10, avruntime = 0.0;
 
 	// Проводим расчет скоростей заданное количество раз
-	for (int run = 0; run < runs; ++run) 
+	for (int run = 0; run < prm.runs; ++run)
 	{
 		for (int i = 0; i < 5; ++i)
 			timing[i] = 0.0;
@@ -316,11 +412,11 @@ void CalcVortexVelo()
 		runtime = -omp_get_wtime();
 
 		// Конструктор для вычисления скоростей частиц
-		BarnesHut BH(wake);
+		BarnesHut BH(prm, wake);
 
 		// Построение дерева treeVrt
 		BH.BuildNecessaryTrees(timing[1]);
-			
+
 		// Расчет влияния вихрей на вихри
 		BH.InfluenceComputation(velo, timing[2], timing[3]);
 
@@ -336,42 +432,59 @@ void CalcVortexVelo()
 				mintiming[i] = timing[i];
 			avtiming[i] += timing[i];
 		}
-		
-		PrintStatistics(run, runs, timing, mintiming, avtiming, runtime, minruntime, avruntime);
-	}
 
+		if (run == 0)
+			PrintTreesInfo(BH.treeVrt, BH.treePan, BH.treeVP);
+
+		PrintStatistics(run, prm.runs, timing, mintiming, avtiming, runtime, minruntime, avruntime, 0);
+#ifdef calcOp	
+		PrintOps(BH::op);
+		BH::op = 0;
+#endif
+	}//run
+
+
+
+	std::string suffix = "";
 	// Сравнение решений по прямому и быстрому методу
-	if (compare)
+	if (prm.compare)
 	{
-		CallBiotSavart CBS(veloBS, wake);		
-		CompareVelocity(BiotSavartWakeToWake, CBS, velo);
+		CallBiotSavart CBS(prm, veloBS, wake);		
+		CompareVelocity(prm, BiotSavartWakeToWake, CBS, velo, suffix);
+#ifdef calcOp	
+		PrintOps(BH::op);
+		BH::op = 0;
+#endif
 	}
 
-	if (save)
-		SaveVelocity(velo);
+
+	if (prm.save)
+		SaveVelocity(prm, velo, suffix);
 
 	std::cout << "Goodbye! " << std::endl;
 }
 
 
-void CalcVPVelo()
+
+void CalcVPVelo(const params& prm)
 {
+
 	std::vector<Vortex2D> wakeVortex, wakeAirfoil, wakeVP;
 	std::vector<Point2D> velo, veloBS, dataAirfoil;
 	
-	ReadWake(vortexFile, wakeVortex, true); // Считываем список вихрей
+	ReadWake(prm.vortexFile, wakeVortex, true, prm.wakeShift); // Считываем список вихрей
 
 	std::vector<double> sec;
-	ReadPanelsWithSolution(airfoilFile, wakeAirfoil, dataAirfoil, sec);
+	ReadPanelsWithSolution(prm, wakeAirfoil, dataAirfoil, sec);
 
-	ReadWake(vpFile, wakeVP, false);  // Считываем список точек, в которых вычисляются скорости
+	ReadWake(prm.vpFile, wakeVP, false, {0.0, 0.0});  // Считываем список точек, в которых вычисляются скорости
 
-	PrintConfiguration(wakeVP.size());
+	PrintConfiguration(prm, (int)wakeVortex.size(), (int)wakeAirfoil.size(), (int)wakeVP.size());
 
 	double timing[5], mintiming[5]{ 1e+10, 1e+10, 1e+10, 1e+10, 1e+10 }, avtiming[5]{};
 	double runtime, minruntime = 1e+10, avruntime = 0.0;
 
-	for (int run = 0; run < runs; ++run)
+	for (int run = 0; run < prm.runs; ++run)
 	{
 		for (int i = 0; i < 5; ++i)
 			timing[i] = 0.0;
@@ -382,7 +495,7 @@ void CalcVPVelo()
 		runtime = -omp_get_wtime();
 
 		// Конструктор для вычисления скоростей частиц wakeVР, вызванных влиянием wakeVortex
-		BarnesHut BH(wakeVortex, wakeAirfoil, dataAirfoil, sec, wakeVP);
+		BarnesHut BH(prm, wakeVortex, wakeAirfoil, dataAirfoil, sec, wakeVP);
 
 		// Построение деревьев treeVrt, treePan, treeVP
 		BH.BuildNecessaryTrees(timing[1]);
@@ -403,95 +516,151 @@ void CalcVPVelo()
 			avtiming[i] += timing[i];
 		}
 
-		PrintStatistics(run, runs, timing, mintiming, avtiming, runtime, minruntime, avruntime);
-	}
+		if (run == 0)
+			PrintTreesInfo(BH.treeVrt, BH.treePan, BH.treeVP);
+
+		PrintStatistics(run, prm.runs, timing, mintiming, avtiming, runtime, minruntime, avruntime, 0);
+#ifdef calcOp	
+		PrintOps(BH::op);
+		BH::op = 0;
+#endif
+	}//runs
+
+#ifdef linScheme
+#ifdef asympScheme
+	std::string suffix = "-as";
+#else
+	std::string suffix = "-linear";
+#endif//asympScheme
+#else
+	std::string suffix = "-const";
+#endif//linScheme
 
 	// Сравнение решений по прямому и быстрому методу
-	if (compare)
+	if (prm.compare)
 	{
-		CallBiotSavart CBS(veloBS, wakeVortex, wakeAirfoil, dataAirfoil, sec, wakeVP);
-		CompareVelocity(BiotSavartWakeToWakeVP, CBS, velo);				
+		CallBiotSavart CBS(prm, veloBS, wakeVortex, wakeAirfoil, dataAirfoil, sec, wakeVP);
+		CompareVelocity(prm, BiotSavartWakeToWakeVP, CBS, velo, suffix);		
+#ifdef calcOp	
+		PrintOps(BH::op);
+		BH::op = 0;
+#endif
 	}
 
-	if (save)
-		SaveVelocity(velo);
+	if (prm.save)
+		SaveVelocity(prm, velo, suffix);
 
 	std::cout << "Goodbye! " << std::endl;
 }
 
+
+
+
 //Решение системы линейных уравнений
-void SolveLinearSystem()
+void SolveLinearSystem(const params& prm)
 {
 	std::vector<Vortex2D> wakeVortex;
 	std::vector<Vortex2D> wakeAirfoil;
 	std::vector<Point2D> dataAirfoil;
 	
-	ReadWake(vortexFile, wakeVortex, true);
+	ReadWake(prm.vortexFile, wakeVortex, true, prm.wakeShift);
 
-	ReadPanels(airfoilFile, wakeAirfoil, dataAirfoil);
-	int n = wakeAirfoil.size();
-	PrintConfiguration(n);
+	ReadPanels(prm.airfoilFile, wakeAirfoil, dataAirfoil);
+	int n = (int)wakeAirfoil.size();
+	PrintConfiguration(prm, (int)wakeVortex.size(), (int)wakeAirfoil.size(), 0);
+
+	double timing[5], mintiming[5]{ 1e+10, 1e+10, 1e+10, 1e+10, 1e+10 }, avtiming[5]{};
+	double runtime, minruntime = 1e+10, avruntime = 0.0;
 
 	int vsize = n;
 #ifdef  linScheme
 	vsize *= 2;
 #endif
 
-for (int run = 0; run < runs; ++run)
-{
-std::vector<double> gam(vsize, 0.0);
+	std::vector<double> gam(vsize, 0.0);
+	double R = 0.0;
 
-	//wake - центры панелей, data - начала и концы панелей
-	BarnesHut BH(wakeVortex, wakeAirfoil, dataAirfoil);
+	for (int run = 0; run < prm.runs; ++run)
+	{
+		for (int i = 0; i < 5; ++i)
+			timing[i] = 0.0;
 
-	double timing1 = 0.0;
+		gam.resize(0);
+		gam.resize(vsize, 0.0);
+		double R = 0.0;
 
-	// Построение деревьев treeVrt, treePan
-	BH.BuildNecessaryTrees(timing1);
-	
-	double timingRhs = 0.0;
+		runtime = -omp_get_wtime();
 
-	double t1, t2;
+		//wake - центры панелей, data - начала и концы панелей
+		BarnesHut BH(prm, wakeVortex, wakeAirfoil, dataAirfoil);
 
-	double R = 0.0;	
+		// Построение деревьев treeVrt, treePan
+		BH.BuildNecessaryTrees(timing[1]);
 
-	std::vector<double> rhs(vsize); 
-	std::vector<Point2D> velo;
-	velo.resize(vsize);
+		
 
-	// Расчет влияния вихревого следа и набегающего потока на правую часть
-	BH.RhsComputation(velo, timing1, timingRhs);
-	for (int i = 0; i < n; ++i)
-		rhs[i] -= ((velo[i] + velInf) & BH.pointsCopyPan[i].tau);
+		std::vector<double> rhs(vsize);
+		std::vector<Point2D> velo;
+		velo.resize(vsize);
+
+		// Расчет влияния вихревого следа и набегающего потока на правую часть
+		BH.RhsComputation(velo, timing[2], timing[3]);
+
+		for (int i = 0; i < n; ++i)
+			rhs[i] -= ((velo[i] + prm.velInf) & BH.pointsCopyPan[i].tau);
 #ifdef linScheme
-	for (int i = 0; i < n; ++i)
-		rhs[n+i] -= (velo[n+i] & BH.pointsCopyPan[i].tau);
+		for (int i = 0; i < n; ++i)
+			rhs[n + i] -= (velo[n + i] & BH.pointsCopyPan[i].tau);
 #endif
 
-	t1 = omp_get_wtime();
-	GMRES(BH, gam, R, rhs, n);
-	t2 = omp_get_wtime();
+		double tt = 0.0;
+		int niter;
+		GMRES(BH, gam, R, rhs, n, prm, timing[2], timing[3], niter);
 
-	if (run <= 1 )
-{
-	std::cout << "Tree time = " << timing1 << std::endl;
-	std::cout << "GMRES time = " << t2 - t1 << std::endl;
-}
-	std::cout << "Total time = " << timing1 + t2-t1 << std::endl;
+		runtime += omp_get_wtime();
+		if (minruntime > runtime)
+			minruntime = runtime;
+		avruntime += runtime;
 
-	
-	if (compare && run == 0)
+		timing[4] = timing[1] + timing[2] + timing[3];
+		for (int i = 1; i <= 4; ++i)
+		{
+			if (mintiming[i] > timing[i])
+				mintiming[i] = timing[i];
+			avtiming[i] += timing[i];
+		}
+				
+		if (run==0)
+			PrintTreesInfo(BH.treeVrt, BH.treePan, BH.treeVP);
+
+		PrintStatistics(run, prm.runs, timing, mintiming, avtiming, runtime, minruntime, avruntime, niter);
+#ifdef calcOp	
+		PrintOps(BH::op);
+		BH::op = 0;
+#endif
+	}//runs
+		
+	if (prm.compare)
 	{
+		PrintAccuracyHead();
+
 #ifdef linScheme
 #ifndef asympScheme
-		std::ifstream infile("../../res/Exact" + task + "-linear.txt");
+		std::ifstream infile("../../res/Exact" + prm.task + "-linear.txt");
 #else
-		std::ifstream infile("../../res/Exact" + task + "-as.txt");
+		std::ifstream infile("../../res/Exact" + prm.task + "-as.txt");
 #endif //asympScheme
 #else
-		std::ifstream infile("../../res/Exact" + task + "-const.txt");
+		std::ifstream infile("../../res/Exact" + prm.task + "-const.txt");
 #endif // linScheme
-		
+
+		if (infile.good())
+			std::cout << "File with exact solution is found, loading it... ";
+		else
+		{
+			std::cout << "File with exact solution is not found, error!";
+			exit(-1);
+		}
 
 		std::vector<double> gamFile(vsize);
 		
@@ -528,10 +697,10 @@ std::vector<double> gam(vsize, 0.0);
 
 #endif
 		infile.close();
-	}
+	}//compare
 
 
-	if (save && run==0)
+	if (prm.save)
 	{
 		std::ofstream outfile("../../res/gamRes.txt");
 		outfile.precision(16);
@@ -539,15 +708,14 @@ std::vector<double> gam(vsize, 0.0);
 			outfile << gam[i] << std::endl;
 		outfile << R << std::endl;
 		outfile.close();
-	}
-}
+	}//save
+
 	std::cout << "Goodbye! " << std::endl;
 }//SolveLinearSystem()
 
 
-
 //для расчета wake на wake
-void BiotSavartWakeToWake(std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake)
+void BiotSavartWakeToWake(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake)
 {
 #pragma omp parallel for 
 	for (int i = 0; i < (int)wake.size(); ++i)
@@ -568,21 +736,23 @@ void BiotSavartWakeToWake(std::vector<Point2D>& velo, const std::vector<Vortex2D
 			tempVel.toZero();
 
 			dst2 = dist2(posI, posJ);
-			dst2eps = std::max(dst2, eps2);
+			dst2eps = std::max(dst2, prm.eps2);
 
 			tempVel = { -posI[1] + posJ[1], posI[0] - posJ[0] };
 			tempVel *= (gamJ / dst2eps);
 			velI += tempVel;
+			ADDOP(5);
 		}//for j
 
 		velI *= IDPI;
 		velo[i] = velI;
+		ADDOP(2);
 	}//for i 
 }//BiotSavartWakeToWake(...)
 
 
 //для расчета wake на wakeVP
-void BiotSavartWakeToWakeVP(std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake, const std::vector<Vortex2D>& wakeAirfoil, const std::vector <Point2D>& dataAirfoil, const std::vector<double>& sec, const std::vector<Vortex2D>& wakeVP)
+void BiotSavartWakeToWakeVP(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake, const std::vector<Vortex2D>& wakeAirfoil, const std::vector <Point2D>& dataAirfoil, const std::vector<double>& sec, const std::vector<Vortex2D>& wakeVP)
 {
 #pragma omp parallel for 
 	for (int i = 0; i < (int)wakeVP.size(); ++i)
@@ -605,11 +775,12 @@ void BiotSavartWakeToWakeVP(std::vector<Point2D>& velo, const std::vector<Vortex
 			tempVel.toZero();
 
 			dst2 = dist2(posI, posJ);
-			dst2eps = std::max(dst2, eps2);
+			dst2eps = std::max(dst2, prm.eps2);
 
 			tempVel = { -posI[1] + posJ[1], posI[0] - posJ[0] };
 			tempVel *= (gamJ / dst2eps);
 			velI += tempVel;
+			ADDOP(5);
 		}//for j
 
 		
@@ -625,6 +796,7 @@ void BiotSavartWakeToWakeVP(std::vector<Point2D>& velo, const std::vector<Vortex
 #ifdef linScheme			
 			pnl.gamLin = sec[j];
 #endif
+			ADDOP(6);
 			
 			Point2D u0 = pnl.tau;
 			Point2D pp = posI - pnl.panEnd;
@@ -640,12 +812,13 @@ void BiotSavartWakeToWakeVP(std::vector<Point2D>& velo, const std::vector<Vortex
 			velI += (pnl.g() / pnl.len) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
 #ifdef linScheme						
 			velI += (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
+			ADDOP(43);
 
 #ifdef asympScheme
-			for (int t = 0; t < nAngPoints; ++t)
+			for (int t = 0; t < prm.nAngPoints; ++t)
 			{
 				// Панель около угловой точки
-				if (j == KK[t])
+				if (j == prm.KK[t])
 				{
 					Point2D u0 = pnl.tau;
 					Point2D pp = posI - pnl.panEnd;
@@ -662,22 +835,23 @@ void BiotSavartWakeToWakeVP(std::vector<Point2D>& velo, const std::vector<Vortex
 					Point2D varzFirst = { s[0] * cos(rotAngleForward) + s[1] * sin(rotAngleForward),
 						s[1] * cos(rotAngleForward) - s[0] * sin(rotAngleForward) };
 
-					Point2D s1 = sFirst(varzFirst, q[t], p[t], pnl.len);
+					Point2D s1 = sFirst(varzFirst, prm.q[t], prm.p[t], pnl.len);
 					Point2D i1as1First = { s1[0] * cos(rotAngleForward) + s1[1] * sin(rotAngleForward),
 						-s1[1] * cos(rotAngleForward) + s1[0] * sin(rotAngleForward) };
 
 					Point2D sub = (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
 
-					Point2D a1 = (-1.0 / (1.0 - (double)p[t] / q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
+					Point2D a1 = (-1.0 / (1.0 - (double)prm.p[t] / prm.q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
 					Point2D a2 = i1as1First.kcross();
 
 					Point2D add = (pnl.gamLin / pnl.len) * (a1 + a2);
 					velI -= sub;
 					velI += add;
+					ADDOP(56);
 				}
 
 				// Панель около угловой точки
-				if (j == KKm[t])
+				if (j == prm.KKm[t])
 				{
 					Point2D u0 = pnl.tau;
 					Point2D pp = posI - pnl.panEnd;
@@ -694,15 +868,16 @@ void BiotSavartWakeToWakeVP(std::vector<Point2D>& velo, const std::vector<Vortex
 					Point2D varzLast = { pp[0] * cos(rotAngleBackward) + pp[1] * sin(rotAngleBackward),
 						pp[1] * cos(rotAngleBackward) - pp[0] * sin(rotAngleBackward) };
 
-					Point2D s2 = sFirst(varzLast, q[t], p[t], pnl.len);
+					Point2D s2 = sFirst(varzLast, prm.q[t], prm.p[t], pnl.len);
 					Point2D i1as1Last = { s2[0] * cos(rotAngleBackward) + s2[1] * sin(rotAngleBackward),
 						-s2[1] * cos(rotAngleBackward) + s2[0] * sin(rotAngleBackward) };
 
 					Point2D sub = (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
-					Point2D add = (pnl.gamLin / pnl.len) * ((-1.0 / (1.0 - (double)p[t] / q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross() + i1as1Last.kcross());
+					Point2D add = (pnl.gamLin / pnl.len) * ((-1.0 / (1.0 - (double)prm.p[t] / prm.q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross() + i1as1Last.kcross());
 
 					velI -= sub;
 					velI += add;
+					ADDOP(56);
 				}
 			}
 #endif
@@ -711,6 +886,7 @@ void BiotSavartWakeToWakeVP(std::vector<Point2D>& velo, const std::vector<Vortex
 		
 
 		velI *= IDPI;
-		velo[i] = velI + velInf;
+		velo[i] = velI + prm.velInf;
+		ADDOP(2);
 	}//for i 
 }//BiotSavart(...)

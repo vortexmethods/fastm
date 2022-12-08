@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.2    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
+|        #####   ##  ##         |                            | Version 1.3    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -32,14 +32,15 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.2
-\date 22 октября 2022 г.
+\version 1.3
+\date 08 декабря 2022 г.
 */
 
 #ifndef LOGO_H_
 #define LOGO_H_
 
 #include <fstream>
+#include <string>
 
 #include "Params.h"
 
@@ -50,8 +51,8 @@ namespace BH
 	{
 		str <<
 			"/*---------------------------------*- BH -*------------------*---------------*\\" << '\n' << \
-			"|        #####   ##  ##         |                            | Version 1.2    |" << '\n' << \
-			"|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |" << '\n' << \
+			"|        #####   ##  ##         |                            | Version 1.3    |" << '\n' << \
+			"|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |" << '\n' << \
 			"|        #####   ######         |  for 2D vortex particles   *----------------*" << '\n' << \
 			"|        ##  ##  ##  ##         |  Open Source Code                           |" << '\n' << \
 			"|        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |" << '\n' << \
@@ -60,68 +61,109 @@ namespace BH
 			"\\*---------------------------------------------------------------------------*/" << '\n';
 	}
 
-	void PrintProperties()
+	void PrintProperties(const params& prm)
 	{
 		printf("\n");
 		printf("                             CPU Properties                             \n");
 		printf("------------------------------------------------------------------------\n");
 		printf("OpenMP max threads:                 %d\n", omp_get_max_threads());
 		//printf("OpenMP nested parallelism:        %s\n", (omp_get_nested() ? "on" : "off"));		
-		printf("Nested OpenMP up to tree level:     %d\n", maxLevelOmp);
+		printf("Nested OpenMP up to tree level:     %d\n", prm.maxLevelOmp + 1);
 		printf("------------------------------------------------------------------------\n");
 	}
 
 
-	void PrintConfiguration(int nbodies)
+	void PrintConfiguration(const params& prm, int nVrt, int nPnl, int nVP)
 	{
-		std::cout << std::endl;
-		std::cout << "                     Configuration for task \"" << task.c_str() << "\"" << std::endl;
-		std::cout << "------------------------------------------------------------------------" << std::endl;
-		std::cout << "Number of bodies:               " << nbodies << " (eps = " << eps << ")" << std::endl;
-		std::cout << "Multipoles:                     " << "up to " << order << "-th moment" << std::endl;
-
-		//std::cout << "Multipoles:                     " << "mon";
-		//if (order >= 1)
-		//	std::cout << ", dip";
-		//if (order >= 2)
-		//	std::cout << ", qua";
-		//if (order >= 3)
-		//	std::cout << ", oct";
-		//if (order >= 4)
-		//	std::cout << ", hex";
-		//std::cout << std::endl;
-		std::cout << "Theta in proximity criterion:   " << theta << std::endl;
-		std::cout << "Maximal tree level:             " << NumOfLevels << std::endl;
-/*
-		std::cout << "Panels at tree lowest level:    " <<
-#ifdef infFromPanels 
-			"true" 
+#ifdef CALCVORTEXVELO
+		std::string label = "NBODY: ";
 #else
-			"false" 
+#ifdef CALCSHEET
+		std::string label = "  BIE: ";
+#else
+		std::string label = "   VP: ";
 #endif
-			<< std::endl;
-*/
+#endif
+			
+
+		auto shortName = [](const std::string& fileName)
+		{
+			char ch = '/';
+
+			size_t index = fileName.rfind(ch);
+			std::string shortAirfoilFile;
+			if (index != std::string::npos)
+				return fileName.substr(index + 1);
+			else
+				return fileName;
+		};
+
+		std::cout << std::endl;
+		std::cout << "       " << label << " Configuration for task \"" << prm.task.c_str() << "\"" << std::endl;
+		std::cout << "------------------------------------------------------------------------" << std::endl;
+		std::cout << "Number of particles in wake:    " << nVrt << " (" << shortName(prm.vortexFile) << ")" << std::endl;
+		std::cout << "Wake shift:                     " << prm.wakeShift << std::endl;
+#if defined CALCSHEET || defined CALCVP
+		std::cout << "Number of panels at airfoil:    " << nPnl << " (" << shortName(prm.airfoilFile) << ")" << std::endl;
+#endif
+
+#if defined CALCVP
+		std::cout << "Number of VP points:            " << nVP << " (" << shortName(prm.vpFile) << ")" << std::endl;
+#endif
+		
+		std::cout << "Epsilon:                        " << prm.eps << std::endl;
+		std::cout << "Multipoles:                     " << "up to " << prm.order << "-th moment" << std::endl;
+		std::cout << "Theta in proximity criterion:   " << prm.theta << std::endl;
 		std::cout << "Counting operations:            " <<
 #ifdef calcOp 
-			"true (OpenMP is partially turned off)" << std::endl;
+			"true (OpenMP is turned off; 'runs' = 1)" << std::endl;
 #else
 			"false" << std::endl;
 #endif
-		std::cout << "Compare/save:                   " << (compare ? "true" : "false") << "/" << (save ? "true" : "false") << std::endl;
+		std::cout << "Compare/save:                   " << (prm.compare ? "true" : "false") << "/" << (prm.save ? "true" : "false") << std::endl;
 		std::cout << "------------------------------------------------------------------------" << std::endl;
 	}
 
 
+
+	void PrintTreesInfo(const std::unique_ptr<MortonTree>& treeVrt, const std::unique_ptr<MortonTree>& treePan, const std::unique_ptr<MortonTree>& treeVP)
+	{
+		std::cout << std::endl;
+		std::cout << "                         Trees statistics                               " << std::endl;
+		std::cout << "------------------------------------------------------------------------" << std::endl;
+		std::cout << "Tree      N particles   Treshold   Part. depth   Leafs depth   N leafs  " << std::endl;
+		std::cout << "------------------------------------------------------------------------" << std::endl;
+		
+			
+		auto printStat = [](const std::unique_ptr<MortonTree>& tree, const std::string& label)
+		{
+			if (tree.get() != nullptr)
+			{
+				int treshold, numParticles, cowLevelCells;
+				std::pair<int, int> partLevel, leafsLevel;
+				tree->getStatistics(numParticles, treshold, partLevel, leafsLevel, cowLevelCells);
+				printf("%s  %7d        %2d       %2d ... %2d     %2d ... %2d   %7d\n", label.c_str(), numParticles, treshold, partLevel.first, partLevel.second, leafsLevel.first, leafsLevel.second, cowLevelCells);
+			}
+		};
+		
+		printStat(treeVrt, "Vortices: ");
+		printStat(treePan, "Panels:   ");
+		printStat(treeVP,  "VP points:");		
+	}//PrintTreesInfo
+		
+	
+
 	void PrintStatistics(int run, int runs,
 		const double* timing, const double* mintiming, const double* avtiming,
-		double runtime, double minruntime, double avruntime)
+		double runtime, double minruntime, double avruntime, int niter)
 	{
 		if (run == 0)
 		{
 			std::cout << std::endl;
 			std::cout << "                         Time statistics                                " << std::endl;
 			std::cout << "------------------------------------------------------------------------" << std::endl;
-			std::cout << "  run/runs  total        TBK     SKK     FCK      ker.time              " << std::endl;
+			std::cout << "  run/runs  total        TBK     SKK     FCK    | ker.time              " << std::endl;
+			std::cout << "------------------------------------------------------------------------" << std::endl;
 		}
 
 
@@ -130,7 +172,10 @@ namespace BH
 		printf(" %6.3f ", timing[1]);
 		printf(" %6.3f ", timing[2]);
 		printf(" %6.3f ", timing[3]);
-		printf(") = %6.3f s\n", timing[4]);
+		printf(") | %6.3f s", timing[4]);
+		if (niter > 0)
+			printf("   (%d iters)", niter);
+		printf("\n");
 		
 		if (run == runs - 1)
 		{
@@ -143,20 +188,25 @@ namespace BH
 			printf(" %6.3f ", mintiming[3]);
 			printf(") | %6.3f s\n", mintiming[4]);
 
-
 			printf("    aver : %6.3lf s  (", avruntime / runs);
 
 			printf(" %6.3f ", avtiming[1] / runs);
 			printf(" %6.3f ", avtiming[2] / runs);
 			printf(" %6.3f ", avtiming[3] / runs);
 			printf(") | %6.3f s\n", avtiming[4] / runs);
-
-#ifdef calcOp
 			std::cout << "------------------------------------------------------------------------" << std::endl;
-			std::cout << "Operations:   " << op << " operations                                   " << std::endl;
-#endif
-
 		}
+	}
+
+	void PrintOps(long long nops)
+	{
+#ifdef calcOp
+		if (nops > 0)
+		{
+			std::cout << "Operations:   " << nops << "  ( " << (double)(nops) << " )" << std::endl;
+			std::cout << "------------------------------------------------------------------------" << std::endl;
+		}
+#endif
 	}
 
 

@@ -1,11 +1,11 @@
 /*--------------------------------*- FMM -*------------------*---------------*\
-|   ######  ##   ##  ##   ##    |                            | Version 1.0    |
-|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2021/08/05     |
+|   ######  ##   ##  ##   ##    |                            | Version 1.3    |
+|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2022/12/08     |
 |   ####    ## # ##  ## # ##    |  for 2D vortex particles   *----------------*
 |   ##      ##   ##  ##   ##    |  Open Source Code                           |
 |   ##      ##   ##  ##   ##    |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
+| Copyright (C) 2020-2022 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
 *-----------------------------------------------------------------------------*
 | File name: main.cpp                                                         |
 | Info: Source code of FMM                                                    |
@@ -28,11 +28,11 @@
 /*!
 \file
 \brief Multipole method for 2D vortex particles
-\author Марчевский Илья Константинович
-\author Рятина Евгения Павловна
-\author Попудняк Дарья Олеговна
-\version 1.0
-\date 05 августа 2021 г.
+\author РњР°СЂС‡РµРІСЃРєРёР№ РР»СЊСЏ РљРѕРЅСЃС‚Р°РЅС‚РёРЅРѕРІРёС‡
+\author Р СЏС‚РёРЅР° Р•РІРіРµРЅРёСЏ РџР°РІР»РѕРІРЅР°
+\author РџРѕРїСѓРґРЅСЏРє Р”Р°СЂСЊСЏ РћР»РµРіРѕРІРЅР°
+\version 1.3
+\date 08 РґРµРєР°Р±СЂСЏ 2022 Рі.
 */
 
 #include <algorithm>
@@ -57,6 +57,7 @@ const double IDPI = 0.15915494309189534;
 int Particle::counter = 0;
 void BiotSavart(const std::vector<Particle>& wake, std::vector<Point2D>& velo);
 
+extern double mt, m2mt;
 
 int main(int argc, char** argv)
 {
@@ -98,11 +99,13 @@ int main(int argc, char** argv)
 
 		Tree qt(pp);
 
-		auto maxit = std::max_element(qt.node.begin(), qt.node.end(), [](const FMM::Cell& n1, const Cell& n2) {return n1.level < n2.level; });
+		//auto maxit = std::max_element(qt.node.begin(), qt.node.end(), [](const FMM::Cell& n1, const Cell& n2) {return n1.level < n2.level; });
 
 		//std::cout << "max_level = " << maxit->level << std::endl;
 
 		double t2 = omp_get_wtime();
+
+		//std::cout << "tree time = " << t2 - t1 << std::endl;
 
 		FastMultipole f(nt);
 		f.InfluenceComputation(qt);
@@ -127,7 +130,7 @@ int main(int argc, char** argv)
 				mintiming[i] = timing[i];
 			avtiming[i] += timing[i];
 		}
-
+		//std::cout << mt << " " << m2mt << std::endl;
 		PrintStatistics(run, runs, timing, mintiming, avtiming, runtime, minruntime, avruntime, f.opDiv + f.opMult + 2LL * n);
 	}
 
@@ -203,7 +206,7 @@ void BiotSavart(const std::vector<Particle>& wake, std::vector<Point2D>& velo)
 #pragma omp parallel for 
 	for (int i = 0; i < (int)wake.size(); ++i)
 	{
-		//Локальные переменные для цикла
+		//Р›РѕРєР°Р»СЊРЅС‹Рµ РїРµСЂРµРјРµРЅРЅС‹Рµ РґР»СЏ С†РёРєР»Р°
 		Point2D velI;
 		Point2D tempVel;
 		double dst2eps, dst2;

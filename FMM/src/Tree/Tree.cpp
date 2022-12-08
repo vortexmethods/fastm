@@ -1,11 +1,11 @@
 /*--------------------------------*- FMM -*------------------*---------------*\
-|   ######  ##   ##  ##   ##    |                            | Version 1.0    |
-|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2021/08/05     |
+|   ######  ##   ##  ##   ##    |                            | Version 1.3    |
+|   ##      ### ###  ### ###    |  FMM: Multipole method     | 2022/12/08     |
 |   ####    ## # ##  ## # ##    |  for 2D vortex particles   *----------------*
 |   ##      ##   ##  ##   ##    |  Open Source Code                           |
 |   ##      ##   ##  ##   ##    |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2021 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
+| Copyright (C) 2020-2022 Ilia Marchevsky, Evgeniya Ryatina, Daria Popudnyak  |
 *-----------------------------------------------------------------------------*
 | File name: Tree.cpp                                                         |
 | Info: Source code of FMM                                                    |
@@ -27,12 +27,12 @@
 
 /*!
 \file
-\brief Реализация класса Tree
-\author Марчевский Илья Константинович
-\author Рятина Евгения Павловна
-\author Попудняк Дарья Олеговна
-\version 1.0
-\date 05 августа 2021 г.
+\brief Р РµР°Р»РёР·Р°С†РёСЏ РєР»Р°СЃСЃР° Tree
+\author РњР°СЂС‡РµРІСЃРєРёР№ РР»СЊСЏ РљРѕРЅСЃС‚Р°РЅС‚РёРЅРѕРІРёС‡
+\author Р СЏС‚РёРЅР° Р•РІРіРµРЅРёСЏ РџР°РІР»РѕРІРЅР°
+\author РџРѕРїСѓРґРЅСЏРє Р”Р°СЂСЊСЏ РћР»РµРіРѕРІРЅР°
+\version 1.3
+\date 08 РґРµРєР°Р±СЂСЏ 2022 Рі.
 */
 
 #include <algorithm>
@@ -149,15 +149,15 @@ namespace FMM
 
 		std::set<int> st;
 
-		//Цикл по ближайшим соседям
+		//Р¦РёРєР» РїРѕ Р±Р»РёР¶Р°Р№С€РёРј СЃРѕСЃРµРґСЏРј
 		for (int i = 0; i < (int)node[who].closeNeighbor.size(); ++i)
 		{
 			const Cell& nb = node[node[who].closeNeighbor[i]];
 
-			//если сосед того же уровня, что ячейка
+			//РµСЃР»Рё СЃРѕСЃРµРґ С‚РѕРіРѕ Р¶Рµ СѓСЂРѕРІРЅСЏ, С‡С‚Рѕ СЏС‡РµР№РєР°
 			if (nb.level == node[who].level)
 			{
-				//Цикл по соседям соседа
+				//Р¦РёРєР» РїРѕ СЃРѕСЃРµРґСЏРј СЃРѕСЃРµРґР°
 				for (int j = 0; j < (int)nb.closeNeighbor.size(); ++j)
 				{
 					const Cell& nbnb = node[nb.closeNeighbor[j]];

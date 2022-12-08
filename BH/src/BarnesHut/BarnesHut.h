@@ -1,6 +1,6 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.2    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/10/22     |
+|        #####   ##  ##         |                            | Version 1.3    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
@@ -31,15 +31,14 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.2
-\date 22 октября 2022 г.
+\version 1.3
+\date 08 декабря 2022 г.
 */
 
 
 #ifndef BARNESHUT_H_
 #define BARNESHUT_H_
 
-#include <iostream>
 #include "Tree.h"
 
 namespace BH
@@ -48,6 +47,9 @@ namespace BH
 	class BarnesHut
 	{
 	public:
+		///Ссылка на параметры
+		const params& prm;
+		
 		///Список точек: для вихрей и для панелей
 		std::vector<PointsCopy> pointsCopyPan, pointsCopyVrt, pointsCopyVP;
 		
@@ -59,9 +61,9 @@ namespace BH
 		/// \param[in] pointsPan константная ссылка на список панелей
 		/// \param[in] pointsVrt константная ссылка на список частиц
 		/// \param[in] panPos константная ссылка на начала и концы панелей (для решения СЛАУ)
-		BarnesHut(const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos);
-		BarnesHut(const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos, std::vector<double> sec, const std::vector<Vortex2D>& pointsVP);
-		BarnesHut(const std::vector<Vortex2D>& pointsVrt);
+		BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos);
+		BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos, std::vector<double> sec, const std::vector<Vortex2D>& pointsVP);
+		BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt);
 
 		void CreatePan(const Vortex2D& panCenter, const Point2D& panBegin, const Point2D& panEnd, double gamLin);
 		void ConvertToAsypmPanel(PointsCopy& panel, double mu, bool infinityAtBegin);
@@ -70,7 +72,7 @@ namespace BH
 		~BarnesHut() {};
 
 		///\brief Построение одного дерева tree на основе заданных точек pointsCopy  
-		void BuildOneTree(std::unique_ptr<MortonTree>& tree, std::vector<PointsCopy>& pointsCopy, bool ifpan, double& time);
+		void BuildOneTree(std::unique_ptr<MortonTree>& tree, int maxTreeLevel, std::vector<PointsCopy>& pointsCopy, bool ifpan, double& time);
 
 		///\brief Построение всех нужных деревьев на основе заданных точек pointsCopy  
 		void BuildNecessaryTrees(double& time);
