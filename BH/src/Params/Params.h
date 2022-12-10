@@ -92,7 +92,6 @@ namespace BH
 	\date 08 декабря 2022 г.
 	*/
 
-
 	class params
 	{
 	public:

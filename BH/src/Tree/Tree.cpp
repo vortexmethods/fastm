@@ -58,8 +58,6 @@ namespace BH
 		mortonCodes.resize(points.size());
 		mortonLowCells.reserve(points.size());
 		
-		mortonCodes_temp.resize(points.size());
-		s.resize(256 * omp_get_max_threads());
 
 		//Вычисляем факториалы и биномиальные коэффиценты
 		iFact.resize(prm.order + 1);
@@ -174,6 +172,10 @@ namespace BH
 		//std::cout << "omp_threads = " << omp_get_max_threads() << std::endl;
 
 		//RSort_Node3(mortonCodes.data(), mortonCodes_temp.data(), (int)pointsCopy.size());				
+		
+		//Временные массивы для сортировки		
+		std::vector<unsigned int> s(256 * omp_get_max_threads());
+		std::vector<TParticleCode> mortonCodes_temp(pointsCopy.size());
 		RSort_Parallel(mortonCodes.data(), mortonCodes_temp.data(), (int)pointsCopy.size(), s.data());
 
 		mortonTree[0].range = { 0, (int)pointsCopy.size() - 1 };
