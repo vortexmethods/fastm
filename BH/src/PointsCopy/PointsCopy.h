@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: PointsCopy.h                                                     |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 
@@ -50,8 +50,8 @@ namespace BH
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 	class PointsCopy : public Vortex2D
@@ -71,14 +71,14 @@ namespace BH
 		double velTauLin;
 
 		/// Компоненты матрицы скосов
-		std::vector<Point2D> i00;
+		std::vector<std::vector<Point2D>> i00;
 
 		/// Компоненты предобуславливателя в кусочно-постоянной схеме T0
 		Point2D a, c;
 
 #ifdef linScheme
 		/// Компоненты матрицы скосов
-		std::vector<Point2D> i01, i10, i11;
+		std::vector<std::vector<Point2D>> i01, i10, i11;
 		
 		/// Компоненты предобуславливателя в кусочно - постоянной схеме T0
 		Point2D a1, c1; //для предобуславливателя в Т1

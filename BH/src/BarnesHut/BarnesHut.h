@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: BarnesHut.h                                                      |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 
@@ -48,8 +48,8 @@ namespace BH
 	\author Марчевский Илья Константинович
 	\author Рятина Евгения Павловна
 	\author Колганова Александра Олеговна
-	\version 1.3
-	\date 08 декабря 2022 г.
+	\version 1.4
+	\date 31 мая 2023 г.
 	*/
 	class BarnesHut
 	{
@@ -61,7 +61,7 @@ namespace BH
 		std::vector<PointsCopy> pointsCopyVrt;
 		
 		///Список оберток положений центров панелей
-		std::vector<PointsCopy> pointsCopyPan;
+		std::vector<std::vector<PointsCopy>> pointsCopyPan;
 			
 		///Список оберток положений точек вычисления скорости в области течения
 		std::vector<PointsCopy> pointsCopyVP;
@@ -70,7 +70,7 @@ namespace BH
 		mutable std::unique_ptr<MortonTree> treeVrt;
 		
 		///Умный yказатель на дерево центров панелей
-		mutable std::unique_ptr<MortonTree> treePan;
+		mutable std::vector<std::unique_ptr<MortonTree>> treePan;
 
 		///Умный yказатель на дерево точек вычтсления скорости в области течения
 		mutable std::unique_ptr<MortonTree> treeVP;
@@ -88,7 +88,9 @@ namespace BH
 		/// \param[in] pointsVrt константная ссылка на список частиц
 		/// \param[in] pointsPan константная ссылка на список центров панелей
 		/// \param[in] panPos константная ссылка на положения начал и концов панелей
-		BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos);
+		//BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos);
+		BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<std::vector<Vortex2D>>& pointsPan, const std::vector <std::vector<Point2D>>& panPos);
+
 		
 		/// \brief Конструктор для решения задачи VP о вычислении скоростей в области течения
 		///
@@ -98,7 +100,8 @@ namespace BH
 		/// \param[in] panPos константная ссылка на положения начал и концов панелей
 		/// \param[in] sec константная ссылка на список, в котором хранятся линейные составляющие решения на панелях
 		/// \param[in] pointsVP константная ссылка на список точек в области течения, где рассчитываются скорости
-		BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos, const std::vector<double>& sec, const std::vector<Vortex2D>& pointsVP);
+		//BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<Vortex2D>& pointsPan, const std::vector<Point2D>& panPos, const std::vector<double>& sec, const std::vector<Vortex2D>& pointsVP);
+		BarnesHut(const params& prm_, const std::vector<Vortex2D>& pointsVrt, const std::vector<std::vector<Vortex2D>>& pointsPan, const std::vector<std::vector<Point2D>>& panPos, const std::vector<std::vector<double>>& sec, const std::vector<Vortex2D>& pointsVP);
 		
 		/// \brief Формирование элемента списка pointsCopyPan, соответствующего панели
 		///
@@ -106,7 +109,7 @@ namespace BH
 		/// \param[in] panBegin константная ссылка на положение начала панели
 		/// \param[in] panEnd константная ссылка на положение конца панели
 		/// \param[in] gamLin линейная составляющая решения на панели
-		void CreatePan(const Vortex2D& panCenter, const Point2D& panBegin, const Point2D& panEnd, double gamLin);
+		void CreatePan(const Vortex2D& panCenter, const Point2D& panBegin, const Point2D& panEnd, double gamLin, std::vector<PointsCopy>& pointsCopyPan);
 		
 		/// \brief Преобразование панели к панели, на которой задана асимптотика решения (в окрестности угловой точки)
 		///
@@ -125,7 +128,7 @@ namespace BH
 		/// \param[in] pointsCopy неконстантная ссылка на список данных (оберток) точек, по которым строится дерево
 		/// \param[in] ifpan признак того, что дерево состоит из центров панелей, а не из отдельных частиц
 		/// \param[in,out] time время, затрачиваемое на построение дерева (накопительный итог)
-		void BuildOneTree(std::unique_ptr<MortonTree>& tree, int maxTreeLevel, std::vector<PointsCopy>& pointsCopy, bool ifpan, double& time);
+		void BuildOneTree(std::unique_ptr<MortonTree>& tree, int maxTreeLevel, std::vector<PointsCopy>& pointsCopy, bool ifpan, double& time, int index);
 
 		/// \brief Построение всех нужных деревьев на основе заданных точек pointsCopy  
 		///
@@ -137,14 +140,19 @@ namespace BH
 		/// \param[out] result ссылка на вектор, в который сохраняются вычисленные скорости
 		/// \param[in,out] timeParams время расчета параметров деревьев (накопительный итог)
 		///	\param[in,out] timeInfl время расчета влияния (накопительный итог)
+#ifdef CALCSHEET
+		void InfluenceComputation(std::vector<Point2D>& result, double& timeParams, double& timeInf, int pContr, int pInf);
+#else
 		void InfluenceComputation(std::vector<Point2D>& result, double& timeParams, double& timeInfl);
+#endif
+		
 		
 		/// \brief Расчет правой части при решении ГИУ
 		/// 
 		/// \param[out] result ссылка на вектор, в который сохраняются вычисленные скорости
 		/// \param[in,out] timeParams время расчета параметров дерева (накопительный итог)
 		///	\param[in,out] timeInfl время расчета влияния (накопительный итог)
-		void RhsComputation(std::vector<Point2D>& result, double& timeParams, double& timeInfl);
+		void RhsComputation(std::vector<Point2D>& result, double& timeParams, double& timeInfl, int p);
 	
 		/// \brief Расчет влияния на панели от них же внутри итерационного алгоритма
 		/// 
@@ -152,15 +160,9 @@ namespace BH
 		/// \param[in] newGam константная ссылка на вектор текущих "циркуляций" на панелях
 		/// \param[in,out] timeParams время расчета параметров дерева (накопительный итог)
 		///	\param[in,out] timeInfl время расчета влияния (накопительный итог)
-		void IterativeInfluenceComputation(std::vector<Point2D>& result, const std::vector<double>& newGam, double& timeParams, double& timeInfl);
+		void IterativeInfluenceComputation(std::vector<Point2D>& result, const std::vector<double>& newGam, double& timeParams, double& timeInfl, int pContr, int pInf);
 
-		/// \brief Расчет влияния вихревого следа на панели при решении ГИУ 
-		/// 
-		/// \param[out] rhs ссылка на заполняемый вектор правой части
-		/// \param[in,out] timeParams время расчета параметров дерева (накопительный итог)
-		///	\param[in,out] timeInfl время расчета влияния (накопительный итог)
-		void FillRhs(std::vector<double>& rhs, double& timeParams, double& timeInfl);
-
+		
 		/// \brief Обновление циркуляций вихревых элементов (для итерационного решения СЛАУ/ГИУ)
 		/// 
 		/// \param[in] newGam константная ссылка на вектор нового приближения (поправки, невязки, ...) 

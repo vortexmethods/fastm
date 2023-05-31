@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Params.h                                                         |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 #ifndef PARAMS_H_
@@ -42,6 +42,8 @@
 namespace BH
 {	
 	
+//#define OLD_OMP
+
 	//Признак подсчета числа операций
 	//Включаются ключами cmake
 	//#define calcOp 
@@ -88,8 +90,8 @@ namespace BH
 	\author Марчевский Илья Константинович
 	\author Рятина Евгения Павловна
 	\author Колганова Александра Олеговна
-	\version 1.3
-	\date 08 декабря 2022 г.
+	\version 1.4
+	\date 31 мая 2023 г.
 	*/
 
 	class params
@@ -102,7 +104,7 @@ namespace BH
 		Point2D wakeShift;
 
 		/// Имя файла со списком вершин профиля
-		std::string airfoilFile;
+		std::vector<std::string> airfoilFile;
 
 		/// Имя файла со списком точек вычисления скорости
 		std::string vpFile;

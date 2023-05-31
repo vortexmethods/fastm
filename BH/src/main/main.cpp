@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: main.cpp                                                         |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 #include "BarnesHut.h"
@@ -46,11 +46,11 @@ using namespace BH;
 #include <functional>
 #include <variant>
 
+
 using fA = std::function<void(const params& prm, std::vector<Point2D>&, const std::vector<Vortex2D>&)>;
-using fB = std::function<void(const params& prm, std::vector<Point2D>&, const std::vector<Vortex2D>&, const std::vector<Vortex2D>&, const std::vector <Point2D>&, const std::vector<double>&, const std::vector<Vortex2D>& wakeVP)>;
+using fB = std::function<void(const params& prm, std::vector<Point2D>&, const std::vector<Vortex2D>&, const std::vector<std::vector<Vortex2D>>&, const std::vector<std::vector<Point2D>>&, const std::vector<std::vector<double>>&, const std::vector<Vortex2D>& wakeVP)>;
 
 using varfunc = std::variant<fA, fB>;
-
 
 void CalcVortexVelo(const params& prm);
 void CalcVPVelo(const params& prm);
@@ -59,7 +59,7 @@ void SolveLinearSystem(const params& prm);
 //для расчета wake на wake
 void BiotSavartWakeToWake(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake);
 //для расчета wake на wakeVP
-void BiotSavartWakeToWakeVP(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake, const std::vector<Vortex2D>& wakeAirfoil, const std::vector <Point2D>& dataAirfoil, const std::vector<double>& sec, const std::vector<Vortex2D>& wakeVP);
+void BiotSavartWakeToWakeVP(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake, const std::vector<std::vector<Vortex2D>>& wakeAirfoil, const std::vector<std::vector<Point2D>>& dataAirfoil, const std::vector<std::vector<double>>& sec, const std::vector<Vortex2D>& wakeVP);
 
 
 
@@ -217,7 +217,7 @@ void ReadWake(const std::string fileWake, std::vector<Vortex2D>& wakeVortex, boo
 }//ReadWake(...)
 
 
-void ReadPanels(const std::string fileAirfoil, std::vector<Vortex2D>& wakeAirfoil, std::vector<Point2D>& dataAirfoil)
+void ReadPanels(const std::string fileAirfoil, std::vector<Vortex2D>& wakeAirfoil, std::vector<Point2D>& dataAirfoil, const Point2D& shift)
 {
 	//загрузка файла с параметрами панелей
 	std::ifstream infileAirfoil(fileAirfoil);
@@ -237,8 +237,11 @@ void ReadPanels(const std::string fileAirfoil, std::vector<Vortex2D>& wakeAirfoi
 	std::vector <double> len(nAirfoil);
 
 	for (int i = 0; i < nAirfoil; ++i)
+	{
 		for (int j = 0; j < 2; ++j)
 			infileAirfoil >> dataAirfoil[i][j];
+		dataAirfoil[i] += shift;
+	}
 
 	for (int i = 0; i < nAirfoil; ++i)
 	{
@@ -256,47 +259,52 @@ void ReadPanels(const std::string fileAirfoil, std::vector<Vortex2D>& wakeAirfoi
 }//ReadPanels(...)
 
 
-void ReadPanelsWithSolution(const params& prm, std::vector<Vortex2D>& wakeAirfoil, std::vector<Point2D>& dataAirfoil, std::vector<double>& sec)
+void ReadPanelsWithSolution(const params& prm, std::vector<std::vector<Vortex2D>>& wakeAirfoil, std::vector<std::vector<Point2D>>& dataAirfoil, std::vector<std::vector<double>>& sec, const Point2D& shift)
 {
-	ReadPanels(prm.airfoilFile, wakeAirfoil, dataAirfoil);
+	for (size_t p = 0; p < prm.airfoilFile.size(); ++p)
+	{
+		ReadPanels(prm.airfoilFile[p], wakeAirfoil[p], dataAirfoil[p], shift);
 
 #ifdef linScheme
 #ifdef asympScheme
-	std::string suffix = "-as";
+		std::string suffix = "-as";
 #else
-	std::string suffix = "-linear";
+		std::string suffix = "-linear";
 #endif//asympScheme
 #else
-	std::string suffix = "-const";
+		std::string suffix = "-const";
 #endif//linScheme
 
-	std::ifstream infileSolution("../../res/Exact" + prm.task + suffix + ".txt");
-	if (!infileSolution.good())
-	{
-		std::cout << "File " << "../../res/Exact" << prm.task << suffix << ".txt" << " is not found. Error!" << std::endl;
-		exit(-2);
-	}
+		std::ifstream infileSolution("../../res/Exact" + prm.task + suffix + ".txt");
+		if (!infileSolution.good())
+		{
+			std::cout << "File " << "../../res/Exact" << prm.task << suffix << ".txt" << " is not found. Error!" << std::endl;
+			exit(-2);
+		}
 
-	int nAirfoil = (int)wakeAirfoil.size();
-	for (int i = 0; i < nAirfoil; ++i)
-		infileSolution >> wakeAirfoil[i].g();
+		int nAirfoil = (int)wakeAirfoil[p].size();
+		for (int i = 0; i < nAirfoil; ++i)
+			infileSolution >> wakeAirfoil[p][i].g();
 
 #ifdef linScheme
-	sec.resize(nAirfoil);
-	for (int i = 0; i < nAirfoil; ++i)
-		infileSolution >> sec[i];
+		for (int k = 0; k < prm.airfoilFile.size(); ++k)
+			sec[k].resize(nAirfoil);
+
+		for (int i = 0; i < nAirfoil; ++i)
+			infileSolution >> sec[p][i];
 #endif 
 
-	infileSolution.close();
+		infileSolution.close();
+	}
 }//ReadPanelsWithSolution(...)
 
 
 struct CallBiotSavart {
 	const params& prm;
 	const std::vector<Vortex2D>& wake;
-	const std::vector<Vortex2D>& wakeAirfoil;
-	const std::vector<Point2D>& dataAirfoil;
-	const std::vector<double>& sec;
+	const std::vector<std::vector<Vortex2D>>& wakeAirfoil;
+	const std::vector<std::vector<Point2D>>& dataAirfoil;
+	const std::vector<std::vector<double>>& sec;
 	const std::vector<Vortex2D>& wakeVP;
 		
 	//std::vector<Point2D>& velo;
@@ -305,23 +313,25 @@ struct CallBiotSavart {
 	void operator()(fA foo) { foo(prm, veloBS, wake); }
 	void operator()(fB foo) { foo(prm, veloBS, wake, wakeAirfoil, dataAirfoil, sec, wakeVP); };
 
+	static const std::vector<std::vector<Vortex2D>>& emptyVortex2Dvec;
 	static const std::vector<Vortex2D>& emptyVortex2D;
-	static const std::vector<Point2D>& emptyPoint2D;
-	static const std::vector<double>& emptyDouble;
+	static const std::vector<std::vector<Point2D>>& emptyPoint2Dvec;
+	static const std::vector<std::vector<double>>& emptyDoublevec;
 
 //#pragma warning( push )
 //#pragma warning( disable : 3295 )
 	CallBiotSavart(const params& prm_, std::vector<Point2D>& veloBS_, const std::vector<Vortex2D>& wake_)
-		: prm(prm_), wake(wake_), veloBS(veloBS_), wakeAirfoil(emptyVortex2D), dataAirfoil(emptyPoint2D), sec(emptyDouble), wakeVP(emptyVortex2D) {};
+		: prm(prm_), wake(wake_), veloBS(veloBS_), wakeAirfoil(emptyVortex2Dvec), dataAirfoil(emptyPoint2Dvec), sec(emptyDoublevec), wakeVP(emptyVortex2D) {};
 //#pragma warning( pop )
 
-	CallBiotSavart(const params& prm_, std::vector<Point2D>& veloBS_, const std::vector<Vortex2D>& wake_, const std::vector<Vortex2D>& wakeAirfoil_, const std::vector<Point2D>& dataAirfoil_, const std::vector<double>& sec_, const std::vector<Vortex2D>& wakeVP_)
+	CallBiotSavart(const params& prm_, std::vector<Point2D>& veloBS_, const std::vector<Vortex2D>& wake_, const std::vector<std::vector<Vortex2D>>& wakeAirfoil_, const std::vector<std::vector<Point2D>>& dataAirfoil_, const std::vector<std::vector<double>>& sec_, const std::vector<Vortex2D>& wakeVP_)
 		: prm(prm_), wake(wake_), veloBS(veloBS_), wakeAirfoil(wakeAirfoil_), dataAirfoil(dataAirfoil_), sec(sec_), wakeVP(wakeVP_) {};
 };
 
 const std::vector<Vortex2D>& CallBiotSavart::emptyVortex2D = {};
-const std::vector<Point2D>& CallBiotSavart::emptyPoint2D = {};
-const std::vector<double>& CallBiotSavart::emptyDouble = {};
+const std::vector<std::vector<Vortex2D>>& CallBiotSavart::emptyVortex2Dvec = {};
+const std::vector<std::vector<Point2D>>& CallBiotSavart::emptyPoint2Dvec = {};
+const std::vector<std::vector<double>>& CallBiotSavart::emptyDoublevec = {};
 
 
 void CompareVelocity(const params& prm, varfunc BiotSavartFunction, CallBiotSavart& callFunc, const std::vector<Point2D>& velo, const std::string& suffix)
@@ -387,13 +397,13 @@ void SaveVelocity(const params& prm, const std::vector<Point2D>& velo, const std
 }//SaveVelocity
 
 
-
+#ifdef CALCVORTEXVELO
 //Расчет скоростей, генерируемых облаком точек, в этих же точках
 void CalcVortexVelo(const params& prm)
 {
 	std::vector<Vortex2D> wake;
 	ReadWake(prm.vortexFile, wake, true, prm.wakeShift); //true - значит, читать тройки (x, y, \Gamma)
-	PrintConfiguration(prm, (int)wake.size(), 0, 0);
+	PrintConfiguration(prm, (int)wake.size(), { 0 }, 0);
 
 	std::vector<Point2D> velo, veloBS;
 
@@ -461,23 +471,34 @@ void CalcVortexVelo(const params& prm)
 
 	std::cout << "Goodbye! " << std::endl;
 }
+#endif
 
-
-
+#ifdef CALCVP
 void CalcVPVelo(const params& prm)
 {
 
-	std::vector<Vortex2D> wakeVortex, wakeAirfoil, wakeVP;
-	std::vector<Point2D> velo, veloBS, dataAirfoil;
+	std::vector<Vortex2D> wakeVortex, wakeVP;
+	std::vector<std::vector<Vortex2D>> wakeAirfoil;
+	std::vector<Point2D> velo, veloBS;
+	std::vector<std::vector<Point2D>> dataAirfoil;
+	
+	wakeAirfoil.resize(prm.airfoilFile.size());
+	dataAirfoil.resize(prm.airfoilFile.size());
 	
 	ReadWake(prm.vortexFile, wakeVortex, true, prm.wakeShift); // Считываем список вихрей
 
-	std::vector<double> sec;
+	std::vector<std::vector<double>> sec;
+	sec.resize(prm.airfoilFile.size()); //???
+
 	ReadPanelsWithSolution(prm, wakeAirfoil, dataAirfoil, sec);
 
 	ReadWake(prm.vpFile, wakeVP, false, {0.0, 0.0});  // Считываем список точек, в которых вычисляются скорости
+	
+	std::vector<int> n;
+	for (auto& x : wakeAirfoil)
+		n.push_back(x.size());
 
-	PrintConfiguration(prm, (int)wakeVortex.size(), (int)wakeAirfoil.size(), (int)wakeVP.size());
+	PrintConfiguration(prm, (int)wakeVortex.size(), n, (int)wakeVP.size());
 
 	double timing[5], mintiming[5]{ 1e+10, 1e+10, 1e+10, 1e+10, 1e+10 }, avtiming[5]{};
 	double runtime, minruntime = 1e+10, avruntime = 0.0;
@@ -550,66 +571,94 @@ void CalcVPVelo(const params& prm)
 
 	std::cout << "Goodbye! " << std::endl;
 }
+#endif
 
 
-
-
+#ifdef CALCSHEET
 //Решение системы линейных уравнений
 void SolveLinearSystem(const params& prm)
 {
 	std::vector<Vortex2D> wakeVortex;
-	std::vector<Vortex2D> wakeAirfoil;
-	std::vector<Point2D> dataAirfoil;
-	
+	std::vector<std::vector<Vortex2D>> wakeAirfoil(prm.airfoilFile.size());
+	std::vector<std::vector<Point2D>> dataAirfoil(prm.airfoilFile.size());
+
 	ReadWake(prm.vortexFile, wakeVortex, true, prm.wakeShift);
 
-	ReadPanels(prm.airfoilFile, wakeAirfoil, dataAirfoil);
-	int n = (int)wakeAirfoil.size();
-	PrintConfiguration(prm, (int)wakeVortex.size(), (int)wakeAirfoil.size(), 0);
+	std::vector<int> n(prm.airfoilFile.size());
+
+	Point2D shifts[] = { {0.0, 0.0}, {0.0, 1.1}, {1.1, 0.0}, {1.1, 1.1} };
+	for (size_t p = 0; p < prm.airfoilFile.size(); ++p)
+	{		
+		ReadPanels(prm.airfoilFile[p], wakeAirfoil[p], dataAirfoil[p], shifts[p]);
+		n[p] = wakeAirfoil[p].size();
+	}
+
+
+	PrintConfiguration(prm, (int)wakeVortex.size(), n, 0);
 
 	double timing[5], mintiming[5]{ 1e+10, 1e+10, 1e+10, 1e+10, 1e+10 }, avtiming[5]{};
 	double runtime, minruntime = 1e+10, avruntime = 0.0;
 
-	int vsize = n;
+	std::vector<int> vsize = n;
+	int totalVsize = 0;
+	for (auto& x : vsize)
+		totalVsize += x;
+
 #ifdef  linScheme
-	vsize *= 2;
+	for (auto& x : vsize)
+		x *= 2;
 #endif
 
-	std::vector<double> gam(vsize, 0.0);
-	double R = 0.0;
+	std::vector<std::vector<double>> gam(prm.airfoilFile.size());
+	for (int k = 0; k < prm.airfoilFile.size(); ++k)
+		gam[k].resize(vsize[k], 0.0);
+
+	std::vector<double> R(prm.airfoilFile.size(), 0.0);
 
 	for (int run = 0; run < prm.runs; ++run)
 	{
 		for (int i = 0; i < 5; ++i)
 			timing[i] = 0.0;
 
-		gam.resize(0);
-		gam.resize(vsize, 0.0);
-		double R = 0.0;
+		for (int k = 0; k < prm.airfoilFile.size(); ++k)
+		{
+			gam[k].resize(0);
+			gam[k].resize(vsize[k], 0.0);
+		}
+
+		std::vector<double> R(prm.airfoilFile.size(), 0.0);
 
 		runtime = -omp_get_wtime();
 
-		//wake - центры панелей, data - начала и концы панелей
+		//wakeAirfoil - центры панелей, dataAirfoil - начала и концы панелей
 		BarnesHut BH(prm, wakeVortex, wakeAirfoil, dataAirfoil);
 
 		// Построение деревьев treeVrt, treePan
 		BH.BuildNecessaryTrees(timing[1]);
 
-		
+		std::vector<std::vector<double>> rhs(prm.airfoilFile.size());
+		std::vector<std::vector<Point2D>> velo(prm.airfoilFile.size());
 
-		std::vector<double> rhs(vsize);
-		std::vector<Point2D> velo;
-		velo.resize(vsize);
+		for (int k = 0; k < prm.airfoilFile.size(); ++k)
+		{
+			rhs[k].resize(vsize[k]);
+			velo[k].resize(vsize[k]);
+		}
 
 		// Расчет влияния вихревого следа и набегающего потока на правую часть
-		BH.RhsComputation(velo, timing[2], timing[3]);
+		for (size_t p = 0; p < prm.airfoilFile.size(); ++p)
+			BH.RhsComputation(velo[p], timing[2], timing[3], p);
 
-		for (int i = 0; i < n; ++i)
-			rhs[i] -= ((velo[i] + prm.velInf) & BH.pointsCopyPan[i].tau);
+		for (int p = 0; p < prm.airfoilFile.size(); ++p) {
+			for (int i = 0; i < n[p]; ++i)
+				rhs[p][i] -= ((velo[p][i] + prm.velInf) & BH.pointsCopyPan[p][i].tau);
 #ifdef linScheme
-		for (int i = 0; i < n; ++i)
-			rhs[n + i] -= (velo[n + i] & BH.pointsCopyPan[i].tau);
+			for (int i = 0; i < n[p]; ++i)
+				rhs[p][n[p] + i] -= (velo[p][n[p] + i] & BH.pointsCopyPan[p][i].tau);
 #endif
+		}//for p
+
+
 
 		double tt = 0.0;
 		int niter;
@@ -627,8 +676,8 @@ void SolveLinearSystem(const params& prm)
 				mintiming[i] = timing[i];
 			avtiming[i] += timing[i];
 		}
-				
-		if (run==0)
+
+		if (run == 0)
 			PrintTreesInfo(BH.treeVrt, BH.treePan, BH.treeVP);
 
 		PrintStatistics(run, prm.runs, timing, mintiming, avtiming, runtime, minruntime, avruntime, niter);
@@ -640,77 +689,107 @@ void SolveLinearSystem(const params& prm)
 
 	if (prm.save)
 	{
-		std::ofstream outfile("../../res/gamRes.txt");
-		outfile.precision(16);
-		for (int i = 0; i < vsize; i++)
-			outfile << gam[i] << std::endl;
-		outfile << R << std::endl;
-		outfile.close();
+		for (size_t p = 0; p < prm.airfoilFile.size(); ++p)
+		{
+			std::ofstream outfile("../../res/gamRes" + std::to_string(p) + ".txt");
+			outfile.precision(16);
+			for (int i = 0; i < vsize[p]; i++)
+				outfile << gam[p][i] << std::endl;
+
+			outfile << R[p] << std::endl;
+
+			outfile.close();
+		}
 	}//save
 
 	if (prm.compare)
 	{
-		PrintAccuracyHead();
+		for (size_t p = 0; p < prm.airfoilFile.size(); ++p)
+		{
+			PrintAccuracyHead();
 
 #ifdef linScheme
 #ifndef asympScheme
-		std::ifstream infile("../../res/Exact" + prm.task + "-linear.txt");
+			std::ifstream infile("../../res/Exact" + prm.task + "-linear-" + std::to_string(p) + ".txt");
+			//std::ifstream infile("../../res/Exact" + prm.task + "-linear.txt");
 #else
-		std::ifstream infile("../../res/Exact" + prm.task + "-as.txt");
+			std::ifstream infile("../../res/Exact" + prm.task + "-as-" + std::to_string(p) + ".txt");
+			//std::ifstream infile("../../res/Exact" + prm.task + "-as.txt");
 #endif //asympScheme
 #else
-		std::ifstream infile("../../res/Exact" + prm.task + "-const.txt");
+			std::ifstream infile("../../res/Exact" + prm.task + "-const-" + std::to_string(p) + ".txt");
+			//std::ifstream infile("../../res/Exact" + prm.task + "-const.txt");
 #endif // linScheme
 
-		if (infile.good())
-			std::cout << "File with exact solution is found, loading it... ";
-		else
-		{
-			std::cout << "File with exact solution is not found, error!" << std::endl;
-			exit(-1);
-		}
+			if (infile.good())
+				std::cout << "File with exact solution is found, loading it... ";
+			else
+			{
+				std::cout << "File with exact solution is not found, error!" << std::endl;
+				exit(-1);
+			}
 
-		std::vector<double> gamFile(vsize);
+			double refVal = 0.0;
 		
-		for (size_t i = 0; i < gam.size(); i++) {
-			infile >> gamFile[i];
-		}
-		std::cout << "done!" << std::endl;
+			std::vector<std::vector<double>> gamFile(prm.airfoilFile.size());
+#ifndef linScheme
+			gamFile[p].resize(vsize[p]);
+#else
+			gamFile[p].resize(2 * vsize[p]);
+#endif
 
-		double refVal = 0.0;
-		for (int i = 0; i < n; i++) {
-		    if (fabs(gam[i]) > refVal)
-				refVal = fabs(gam[i]);
-		}
+			//std::vector<double> gamFile(totalVsize);
+
+				for (size_t i = 0; i < vsize[p]; ++i) 
+					infile >> gamFile[p][i];
+
+			std::cout << "done!" << std::endl;
+
+				for (int i = 0; i < n[p]; i++)
+					if (fabs(gam[p][i]) > refVal)
+						refVal = fabs(gam[p][i]);
+
+
 
 #ifndef linScheme
-		double err = 0.0, maxErr = 0.0;
-		for (int i = 0; i < n; i++) {
-			err = fabs(gam[i] - gamFile[i]);
-			if (err/refVal > maxErr)
-			    maxErr = err/refVal;
-		}
-		PrintAccuracyError(maxErr);
+			double err = 0.0, maxErr = 0.0;
+			int cntr = 0;
+
+				cntr = 0;
+				for (int i = 0; i < n[p]; ++i) {
+					//std::cout << "i = " << i << " " << gam[p][i] << " " << gamFile[p][cntr] << std::endl;
+					err = fabs(gam[p][i] - gamFile[p][cntr]);
+					if (err / refVal > maxErr)
+						maxErr = err / refVal;
+					++cntr;
+				}
+			//}
+			PrintAccuracyError(maxErr);
 #else
-		double err = 0.0, maxErr = 0.0;
-		for (int i = 0; i < n; i++) {
-			err = fabs((gam[i] - 0.5*gam[n+i]) - (gamFile[i] - 0.5*gamFile[n+i]));
-			if (err/refVal > maxErr)
-			    maxErr = err/refVal;
-			err = fabs((gam[i] + 0.5*gam[n+i]) - (gamFile[i] + 0.5*gamFile[n+i]));
-			if (err/refVal > maxErr)
-			    maxErr = err/refVal;
-		}
-		PrintAccuracyError(maxErr);
+			double err = 0.0, maxErr = 0.0;
+			int cntr = 0;
+
+				for (int i = 0; i < n[p]; ++i) {
+					err = fabs(gam[p][i] - gamFile[p][cntr]);
+					err = fabs((gam[p][i] - 0.5 * gam[p][n[p] + i]) - (gamFile[p][cntr] - 0.5 * gamFile[p][vsize[p] / 2 + cntr]));
+					if (err / refVal > maxErr)
+						maxErr = err / refVal;
+					err = fabs((gam[p][i] + 0.5 * gam[p][n[p] + i]) - (gamFile[p][cntr] + 0.5 * gamFile[p][vsize[p] / 2 + cntr]));
+					if (err / refVal > maxErr)
+						maxErr = err / refVal;
+					++cntr;
+				}
+			PrintAccuracyError(maxErr);
 
 #endif
-		infile.close();
+			infile.close();
+		}
 	}//compare
 
 
 	std::cout << "Goodbye! " << std::endl;
 }//SolveLinearSystem()
-
+#endif
 
 //для расчета wake на wake
 void BiotSavartWakeToWake(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake)
@@ -750,7 +829,7 @@ void BiotSavartWakeToWake(const params& prm, std::vector<Point2D>& velo, const s
 
 
 //для расчета wake на wakeVP
-void BiotSavartWakeToWakeVP(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake, const std::vector<Vortex2D>& wakeAirfoil, const std::vector <Point2D>& dataAirfoil, const std::vector<double>& sec, const std::vector<Vortex2D>& wakeVP)
+void BiotSavartWakeToWakeVP(const params& prm, std::vector<Point2D>& velo, const std::vector<Vortex2D>& wake, const std::vector<std::vector<Vortex2D>>& wakeAirfoil, const std::vector<std::vector<Point2D>>& dataAirfoil, const std::vector<std::vector<double>>& sec, const std::vector<Vortex2D>& wakeVP)
 {
 #pragma omp parallel for 
 	for (int i = 0; i < (int)wakeVP.size(); ++i)
@@ -781,107 +860,108 @@ void BiotSavartWakeToWakeVP(const params& prm, std::vector<Point2D>& velo, const
 			ADDOP(5);
 		}//for j
 
-		
-		for (int j = 0; j < (int)wakeAirfoil.size(); ++j)
+		for (size_t p = 0; p < wakeAirfoil.size(); ++p)
 		{
-			const Point2D& posJ = wakeAirfoil[j].r();
-			PointsCopy pnl;
-			pnl.panBegin = dataAirfoil[j];
-			pnl.panEnd = (j < (int)wakeAirfoil.size() - 1) ? dataAirfoil[j + 1] : dataAirfoil[0];
-			pnl.len = (pnl.panEnd - pnl.panBegin).length();
-			pnl.tau = (1.0 / pnl.len) * (pnl.panEnd - pnl.panBegin);
-			pnl.g() = wakeAirfoil[j].g();
+			for (int j = 0; j < (int)wakeAirfoil[p].size(); ++j)
+			{
+				const Point2D& posJ = wakeAirfoil[p][j].r();
+				PointsCopy pnl;
+				pnl.panBegin = dataAirfoil[p][j];
+				pnl.panEnd = (j < (int)wakeAirfoil[p].size() - 1) ? dataAirfoil[p][j + 1] : dataAirfoil[p][0];
+				pnl.len = (pnl.panEnd - pnl.panBegin).length();
+				pnl.tau = (1.0 / pnl.len) * (pnl.panEnd - pnl.panBegin);
+				pnl.g() = wakeAirfoil[p][j].g();
 #ifdef linScheme			
-			pnl.gamLin = sec[j];
+				pnl.gamLin = sec[p][j];
 #endif
-			ADDOP(6);
-			
-			Point2D u0 = pnl.tau;
-			Point2D pp = posI - pnl.panEnd;
-			Point2D s = posI - pnl.panBegin;
-			double alpha = atan2(pp ^ s, pp & s);
-			double lambda = 0.5 * log((s & s) / (pp & pp));
+				ADDOP(6);
 
-			Point2D va = pp + s;
-			Point2D vb = pnl.tau;
-			Point2D omega = (va & vb) * vb + (va ^ vb) * (vb.kcross());
-			Point2D u1 = (0.5 / pnl.len) * omega;
-			
-			velI += (pnl.g() / pnl.len) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
+				Point2D u0 = pnl.tau;
+				Point2D pp = posI - pnl.panEnd;
+				Point2D s = posI - pnl.panBegin;
+				double alpha = atan2(pp ^ s, pp & s);
+				double lambda = 0.5 * log((s & s) / (pp & pp));
+
+				Point2D va = pp + s;
+				Point2D vb = pnl.tau;
+				Point2D omega = (va & vb) * vb + (va ^ vb) * (vb.kcross());
+				Point2D u1 = (0.5 / pnl.len) * omega;
+
+				velI += (pnl.g() / pnl.len) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
 #ifdef linScheme						
-			velI += (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
-			ADDOP(43);
+				velI += (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
+				ADDOP(43);
 
 #ifdef asympScheme
-			for (int t = 0; t < prm.nAngPoints; ++t)
-			{
-				// Панель около угловой точки
-				if (j == prm.KK[t])
+				for (int t = 0; t < prm.nAngPoints; ++t)
 				{
-					Point2D u0 = pnl.tau;
-					Point2D pp = posI - pnl.panEnd;
-					Point2D s = posI - pnl.panBegin;
-					double alpha = atan2(pp ^ s, pp & s);
-					double lambda = 0.5 * log((s & s) / (pp & pp));
+					// Панель около угловой точки
+					if (j == prm.KK[t])
+					{
+						Point2D u0 = pnl.tau;
+						Point2D pp = posI - pnl.panEnd;
+						Point2D s = posI - pnl.panBegin;
+						double alpha = atan2(pp ^ s, pp & s);
+						double lambda = 0.5 * log((s & s) / (pp & pp));
 
-					Point2D va = pp + s;
-					Point2D vb = pnl.tau;
-					Point2D omega = (va & vb) * vb + (va ^ vb) * (vb.kcross());
-					Point2D u1 = (0.5 / pnl.len) * omega;
+						Point2D va = pp + s;
+						Point2D vb = pnl.tau;
+						Point2D omega = (va & vb) * vb + (va ^ vb) * (vb.kcross());
+						Point2D u1 = (0.5 / pnl.len) * omega;
 
-					double rotAngleForward = atan2((pnl.panEnd - pnl.panBegin)[1], (pnl.panEnd - pnl.panBegin)[0]);
-					Point2D varzFirst = { s[0] * cos(rotAngleForward) + s[1] * sin(rotAngleForward),
-						s[1] * cos(rotAngleForward) - s[0] * sin(rotAngleForward) };
+						double rotAngleForward = atan2((pnl.panEnd - pnl.panBegin)[1], (pnl.panEnd - pnl.panBegin)[0]);
+						Point2D varzFirst = { s[0] * cos(rotAngleForward) + s[1] * sin(rotAngleForward),
+							s[1] * cos(rotAngleForward) - s[0] * sin(rotAngleForward) };
 
-					Point2D s1 = sFirst(varzFirst, prm.q[t], prm.p[t], pnl.len);
-					Point2D i1as1First = { s1[0] * cos(rotAngleForward) + s1[1] * sin(rotAngleForward),
-						-s1[1] * cos(rotAngleForward) + s1[0] * sin(rotAngleForward) };
+						Point2D s1 = sFirst(varzFirst, prm.q[t], prm.p[t], pnl.len);
+						Point2D i1as1First = { s1[0] * cos(rotAngleForward) + s1[1] * sin(rotAngleForward),
+							-s1[1] * cos(rotAngleForward) + s1[0] * sin(rotAngleForward) };
 
-					Point2D sub = (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
+						Point2D sub = (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
 
-					Point2D a1 = (-1.0 / (1.0 - (double)prm.p[t] / prm.q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
-					Point2D a2 = i1as1First.kcross();
+						Point2D a1 = (-1.0 / (1.0 - (double)prm.p[t] / prm.q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross();
+						Point2D a2 = i1as1First.kcross();
 
-					Point2D add = (pnl.gamLin / pnl.len) * (a1 + a2);
-					velI -= sub;
-					velI += add;
-					ADDOP(56);
+						Point2D add = (pnl.gamLin / pnl.len) * (a1 + a2);
+						velI -= sub;
+						velI += add;
+						ADDOP(56);
+					}
+
+					// Панель около угловой точки
+					if (j == prm.KKm[t])
+					{
+						Point2D u0 = pnl.tau;
+						Point2D pp = posI - pnl.panEnd;
+						Point2D s = posI - pnl.panBegin;
+						double alpha = atan2(pp ^ s, pp & s);
+						double lambda = 0.5 * log((s & s) / (pp & pp));
+
+						Point2D va = pp + s;
+						Point2D vb = pnl.tau;
+						Point2D omega = (va & vb) * vb + (va ^ vb) * (vb.kcross());
+						Point2D u1 = (0.5 / pnl.len) * omega;
+
+						double rotAngleBackward = atan2((pnl.panBegin - pnl.panEnd)[1], (pnl.panBegin - pnl.panEnd)[0]);
+						Point2D varzLast = { pp[0] * cos(rotAngleBackward) + pp[1] * sin(rotAngleBackward),
+							pp[1] * cos(rotAngleBackward) - pp[0] * sin(rotAngleBackward) };
+
+						Point2D s2 = sFirst(varzLast, prm.q[t], prm.p[t], pnl.len);
+						Point2D i1as1Last = { s2[0] * cos(rotAngleBackward) + s2[1] * sin(rotAngleBackward),
+							-s2[1] * cos(rotAngleBackward) + s2[0] * sin(rotAngleBackward) };
+
+						Point2D sub = (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
+						Point2D add = (pnl.gamLin / pnl.len) * ((-1.0 / (1.0 - (double)prm.p[t] / prm.q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross() + i1as1Last.kcross());
+
+						velI -= sub;
+						velI += add;
+						ADDOP(56);
+					}
 				}
-
-				// Панель около угловой точки
-				if (j == prm.KKm[t])
-				{
-					Point2D u0 = pnl.tau;
-					Point2D pp = posI - pnl.panEnd;
-					Point2D s = posI - pnl.panBegin;
-					double alpha = atan2(pp ^ s, pp & s);
-					double lambda = 0.5 * log((s & s) / (pp & pp));
-
-					Point2D va = pp + s;
-					Point2D vb = pnl.tau;
-					Point2D omega = (va & vb) * vb + (va ^ vb) * (vb.kcross());
-					Point2D u1 = (0.5 / pnl.len) * omega;
-
-					double rotAngleBackward = atan2((pnl.panBegin - pnl.panEnd)[1], (pnl.panBegin - pnl.panEnd)[0]);
-					Point2D varzLast = { pp[0] * cos(rotAngleBackward) + pp[1] * sin(rotAngleBackward),
-						pp[1] * cos(rotAngleBackward) - pp[0] * sin(rotAngleBackward) };
-
-					Point2D s2 = sFirst(varzLast, prm.q[t], prm.p[t], pnl.len);
-					Point2D i1as1Last = { s2[0] * cos(rotAngleBackward) + s2[1] * sin(rotAngleBackward),
-						-s2[1] * cos(rotAngleBackward) + s2[0] * sin(rotAngleBackward) };
-
-					Point2D sub = (pnl.gamLin / pnl.len) * (-alpha * (u1.kcross()) + lambda * u1 - pnl.tau).kcross();
-					Point2D add = (pnl.gamLin / pnl.len) * ((-1.0 / (1.0 - (double)prm.p[t] / prm.q[t])) * (-alpha * (u0.kcross()) + lambda * u0).kcross() + i1as1Last.kcross());
-
-					velI -= sub;
-					velI += add;
-					ADDOP(56);
-				}
-			}
 #endif
 #endif
-		}//for j
-		
+			}//for j
+		}//for p
 
 		velI *= IDPI;
 		velo[i] = velI + prm.velInf;

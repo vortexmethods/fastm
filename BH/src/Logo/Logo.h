@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Logo.h                                                           |
 | Info: Source code of BH                                                     |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 #ifndef LOGO_H_
@@ -51,13 +51,13 @@ namespace BH
 	{
 		str <<
 			"/*---------------------------------*- BH -*------------------*---------------*\\" << '\n' << \
-			"|        #####   ##  ##         |                            | Version 1.3    |" << '\n' << \
-			"|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |" << '\n' << \
+			"|        #####   ##  ##         |                            | Version 1.4    |" << '\n' << \
+			"|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |" << '\n' << \
 			"|        #####   ######         |  for 2D vortex particles   *----------------*" << '\n' << \
 			"|        ##  ##  ##  ##         |  Open Source Code                           |" << '\n' << \
 			"|        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |" << '\n' << \
 			"|                                                                             |" << '\n' << \
-			"| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |" << '\n' << \
+			"| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |" << '\n' << \
 			"\\*---------------------------------------------------------------------------*/" << '\n';
 	}
 
@@ -79,7 +79,7 @@ namespace BH
 	/// \param[in] nVrt число вихревых частиц в загруженном вихревом следе
 	/// \param[in] nPnl число панелей на профиле
 	/// \param[in] nVP число точек вычисления скорости в области течения
-	void PrintConfiguration(const params& prm, int nVrt, int nPnl, int nVP)
+	void PrintConfiguration(const params& prm, int nVrt, const std::vector<int>& nPnl, int nVP)
 	{
 #ifdef CALCVORTEXVELO
 		std::string label = "NBODY: ";
@@ -109,7 +109,9 @@ namespace BH
 		std::cout << "Number of particles in wake:    " << nVrt << " (" << shortName(prm.vortexFile) << ")" << std::endl;
 		std::cout << "Wake shift:                     " << prm.wakeShift << std::endl;
 #if defined CALCSHEET || defined CALCVP
-		std::cout << "Number of panels at airfoil:    " << nPnl << " (" << shortName(prm.airfoilFile) << ")" << std::endl;
+		for (size_t i = 0; i < nPnl.size(); ++i)
+			std::cout << "Number of panels at airfoil:    " << nPnl[i] << " (" << shortName(prm.airfoilFile[i]) << ")" << std::endl;
+		
 #endif
 
 #if defined CALCVP
@@ -135,7 +137,7 @@ namespace BH
 	/// \param[in] treeVrt константная ссылка на дерево из вихревых частиц
 	/// \param[in] treePan константная ссылка на дерево из центров панелей
 	/// \param[in] treeVP константная ссылка на дерево из точек вычисления скоростей в области течения
-	void PrintTreesInfo(const std::unique_ptr<MortonTree>& treeVrt, const std::unique_ptr<MortonTree>& treePan, const std::unique_ptr<MortonTree>& treeVP)
+	void PrintTreesInfo(const std::unique_ptr<MortonTree>& treeVrt, const std::vector<std::unique_ptr<MortonTree>>& treePan, const std::unique_ptr<MortonTree>& treeVP)
 	{
 		std::cout << std::endl;
 		std::cout << "                         Trees statistics                               " << std::endl;
@@ -156,7 +158,9 @@ namespace BH
 		};
 		
 		printStat(treeVrt, "Vortices: ");
-		printStat(treePan, "Panels:   ");
+		for (size_t i = 0; i < treePan.size(); ++i)
+			printStat(treePan[i], "Panels:   ");
+
 		printStat(treeVP,  "VP points:");		
 	}//PrintTreesInfo
 		
@@ -183,7 +187,7 @@ namespace BH
 		printf(" %6.3f ", timing[3]);
 		printf(") | %6.3f s", timing[4]);
 		if (niter > 0)
-			printf("   (%d iters)", niter);
+			printf("   (%d iters)", niter + 1);
 		printf("\n");
 		
 		if (run == runs - 1)

@@ -7,7 +7,7 @@
 |                                                                             |
 | Copyright (C) 2017-2022 Ilia Marchevsky                                     |
 *-----------------------------------------------------------------------------*
-| File name: Preprocessor.cpp                                                 |
+| File name: defs.h                                                           |
 | Info: Source code of VMlib                                                  |
 |                                                                             |
 | This file is part of VMlib.                                                 |

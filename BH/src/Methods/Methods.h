@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Methods.h                                                        |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 #include <iostream>
@@ -67,7 +67,7 @@ namespace BH
 		return fl;
 	}
 
-	void SolCircleRun(std::vector<double>& AX, const std::vector<double>& rhs, const std::vector<PointsCopy>& pnt)
+	void SolCircleRun(double* AX, const double* rhs, const std::vector<PointsCopy>& pnt)
 	{
 		int n = (int)pnt.size();
 #ifdef linScheme
@@ -118,7 +118,7 @@ namespace BH
 	}
 
 
-	void SolM(std::vector<double>& AX, const std::vector<double>& rhs, const std::vector<PointsCopy>& pnt)
+	void SolM(double* AX, double* newlast, const double* rhs, const double* last, const std::vector<PointsCopy>& pnt)
 	{
 		int n = (int)pnt.size();
 
@@ -175,21 +175,29 @@ namespace BH
 			xi2 -= xi[j + 1];
 		}
 		lam2 += 1.0;
+
+/*
 #ifndef linScheme
 		xi2 += rhs[n];
 #else
 		xi2 += rhs[2 * n];
 #endif
+*/
+		xi2 += *last;
+
 		zn = lam1 * mu2 - lam2 * mu1;
 		yn = (xi1 * mu2 - xi2 * mu1) / zn;
 		ynn = -(xi1 * lam2 - xi2 * lam1) / zn;
 		ADDOP(8);
 
+/*
 #ifndef linScheme
 		AX[n] = ynn;
 #else
 		AX[2 * n] = ynn;
 #endif
+*/
+		*newlast = ynn;
 
 		AX[n - 1] = yn;
 		for (int i = n - 2; i >= 0; --i)
@@ -200,20 +208,24 @@ namespace BH
 
 		//Циклическая прогонка для линейной схемы
 #ifdef linScheme 
-		SolCircleRun(AX, /*len, tau,*/ rhs, pnt);
+		SolCircleRun(AX, rhs, pnt);
 #endif 
 	}
 
 
-
-	void GMRES(BarnesHut& BH, std::vector<double>& X, double R, std::vector<double>& rhs, int n, const params& prm, double& timing2, double& timing3, int& niter)
+#ifdef CALCSHEET
+	void GMRES(BarnesHut& BH, std::vector<std::vector<double>>& X, std::vector<double> R, std::vector<std::vector<double>>& rhs, const std::vector<int>& n, const params& prm, double& timing2, double& timing3, int& niter)
 	{
-		int vsize = n;
+
+		int totalVsize = 0;
+		for (const auto& i : n)
+			totalVsize += i;
+
 #ifdef linScheme
-		vsize *= 2;
+		totalVsize *= 2;
 #endif
 
-		std::vector<double> w(vsize + 1), g(vsize + 2);
+		std::vector<double> w(totalVsize + prm.airfoilFile.size()), g(totalVsize + prm.airfoilFile.size() + 1);
 		int m;
 		const int iterSize = 5;
 
@@ -228,53 +240,100 @@ namespace BH
 
 		double beta;
 
-		std::vector <double> diag(vsize);
+		std::vector<std::vector <double>> diag(prm.airfoilFile.size());
+
 #ifndef OLD_OMP
 #pragma omp simd
 #endif
-		for (int i = 0; i < n; ++i)
+		for (int p = 0; p < prm.airfoilFile.size(); ++p)
 		{
-			diag[i] = 0.5 / BH.pointsCopyPan[i].len;
-			ADDOP(1);
+#ifndef linScheme
+			diag[p].resize(n[p]);
+#else
+			diag[p].resize(2 * n[p]);
+#endif
+			//diag[p].resize(n[p]);
+			for (int i = 0; i < n[p]; ++i)
+			{
+				diag[p][i] = 0.5 / BH.pointsCopyPan[p][i].len;
+				ADDOP(1);
 
 #ifdef linScheme
-			diag[i + n] = (1.0 / 24.0) / BH.pointsCopyPan[i].len;
-			ADDOP(2);
+				diag[p][i + n[p]] = (1.0 / 24.0) / BH.pointsCopyPan[p][i].len;
+				ADDOP(2);
 #endif
-		}
+			}
+			//}
 
 #ifdef linScheme
 #ifdef asympScheme
-		for (int t = 0; t < prm.nAngPoints; ++t)
-		{
-			double cft = 0.25 * prm.mu[t] / (prm.mu[t] * prm.mu[t] - 3.0 * prm.mu[t] + 2.0);
-			diag[prm.KK[t] + n] = -cft / BH.pointsCopyPan[prm.KK[t]].len;		                                       
-			diag[prm.KKm[t] + n] = cft / BH.pointsCopyPan[prm.KKm[t]].len;
-			ADDOP(6);
+			for (int t = 0; t < prm.nAngPoints; ++t)
+			{
+				double cft = 0.25 * prm.mu[t] / (prm.mu[t] * prm.mu[t] - 3.0 * prm.mu[t] + 2.0);
+				diag[p][prm.KK[t] + n[0]] = -cft / BH.pointsCopyPan[p][prm.KK[t]].len;
+				diag[p][prm.KKm[t] + n[0]] = cft / BH.pointsCopyPan[p][prm.KKm[t]].len;
+				ADDOP(6);
+			}
+#endif
+#endif
 		}
-#endif
-#endif
 
-		std::vector<Point2D> AX(vsize);
+		std::vector<std::vector<std::vector<Point2D>>> AX(prm.airfoilFile.size());
+
+		int nAX = prm.airfoilFile.size();
+		for (int k = 0; k < nAX; ++k)
+		{
+			AX[k].resize(nAX);
+			for (int p = 0; p < nAX; ++p)
+			{
+				//AX[k][p].resize(n[k]);
+#ifndef linScheme
+				AX[k][p].resize(n[k]);
+#else
+				AX[k][p].resize(2 * n[k]);
+#endif
+			}
+		}
+
 		double tt = 0.0;
-		BH.InfluenceComputation(AX, timing2, timing3);
+
+		//for (int p = 0; p < nAX * nAX; ++p)
+		for (int i = 0; i < nAX; ++i)
+			for (int j = 0; j < nAX; ++j)
+			{
+				BH.InfluenceComputation(AX[i][j], timing2, timing3, i, j);
+			}
 
 		//Проверка, что предобуславливатель работает корректно (влияния соседних панелей рассчитаны по прямой схеме)
 		for (int i = 0; i < (int)BH.pointsCopyPan.size(); ++i)
 		{
-			if ((BH.pointsCopyPan[i].a.length2() == 0.0) || (BH.pointsCopyPan[i].c.length2() == 0.0))
+			if ((BH.pointsCopyPan[0][i].a.length2() == 0.0) || (BH.pointsCopyPan[0][i].c.length2() == 0.0))
 			{
 				std::cout << "eps is too small!" << std::endl;
 				exit(-1);
 			}
 		}
 
-
-		V[0] = rhs;
-		V[0].push_back(0); /// суммарная гамма
+		for (int i = 0; i < prm.airfoilFile.size(); ++i)
+			V[0].insert(V[0].end(), rhs[i].begin(), rhs[i].end());
+		for (int i = 0; i < prm.airfoilFile.size(); ++i)
+			V[0].push_back(0); /// суммарная гамма
 
 		double tPrecondStart = omp_get_wtime();
-		SolM(V[0], V[0], BH.pointsCopyPan);
+
+		//SolM(V[0], V[0], BH.pointsCopyPan[0]);
+
+		int cntr = 0;
+		for (int p = 0; p < prm.airfoilFile.size(); ++p)
+		{
+			SolM(V[0].data() + cntr, &(V[0][totalVsize + p]), V[0].data() + cntr, &(V[0][totalVsize + p]), BH.pointsCopyPan[p]);
+			cntr += n[p];
+#ifdef linScheme
+			cntr += n[p];
+#endif
+		}
+
+
 		double tPrecondFinish = omp_get_wtime();
 
 		timing3 += tPrecondFinish - tPrecondStart;
@@ -286,28 +345,81 @@ namespace BH
 		double c = 1.0;
 		double s = 0.0;
 
-
-		for (int j = 0; j < vsize - 1; ++j)
+		for (int j = 0; j < totalVsize - 1; ++j) //+ n.size()
 		{
-			double tt = 0.0;
-			BH.IterativeInfluenceComputation(AX, V[j], timing2, timing3);
+			BH.UpdateGams(V[j]);
 
-			for (int i = 0; i < n; ++i)
+			double tt = 0.0;			
+
+			//auto TITER = -omp_get_wtime();
+			for (int i = 0; i < nAX; ++i)
+				for (int p = 0; p < nAX; ++p)
+					BH.IterativeInfluenceComputation(AX[i][p], V[j], timing2, timing3, i, p);
+			//TITER += omp_get_wtime();
+
+			//std::cout << "TITER = " << TITER << std::endl;
+
+			int cntr = 0;
+
+			w.resize(0);
+			w.resize(totalVsize + prm.airfoilFile.size(), 0.0);
+
+			for (size_t pi = 0; pi < prm.airfoilFile.size(); ++pi)
 			{
-				w[i] = (AX[i] & BH.pointsCopyPan[i].tau) + V[j][vsize] - V[j][i] * diag[i];
+				for (size_t pj = 0; pj < prm.airfoilFile.size(); ++pj)
+				{
+					for (int i = 0; i < n[pi]; ++i)
+					{
+						w[cntr + i] += (AX[pi][pj][i] & BH.pointsCopyPan[pi][i].tau);
+						if (pi == pj)
+							w[cntr + i] += V[j][totalVsize + pi] - V[j][cntr + i] * diag[pi][i];
 #ifdef linScheme
-				w[i + n] = (AX[i + n] & BH.pointsCopyPan[i].tau) - V[j][i + n] * diag[i + n];
+						w[cntr + i + n[pi]] += (AX[pi][pj][i + n[pi]] & BH.pointsCopyPan[pi][i].tau);
+						if (pi == pj)
+							w[cntr + i + n[pi]] += -V[j][cntr + i + n[pi]] * diag[pi][i + n[pi]];
+#endif						
+					}
+				}
+
+				cntr += n[pi];
+#ifdef linScheme
+				cntr += n[pi];
 #endif
 			}
-			w[vsize] = 0.0;
-			for (int i = 0; i < n; ++i)
-				w[vsize] += V[j][i];
-			
+
+			for (int i = 0; i < n.size(); ++i)
+				w[totalVsize + i] = 0.0;
+
+			cntr = 0;
+			for (int i = 0; i < n.size(); ++i)
+			{
+				for (int k = 0; k < n[i]; ++k)
+					w[totalVsize + i] += V[j][cntr + k];
+				cntr += n[i];
+#ifdef linScheme
+				cntr += n[i];
+#endif
+			}
+
+
+
+
 			double tPrecondStart = omp_get_wtime();
-			SolM(w, w, BH.pointsCopyPan);
+			//SolM(w, w, BH.pointsCopyPan[0]);
+
+			cntr = 0;
+			for (int p = 0; p < prm.airfoilFile.size(); ++p)
+			{
+				SolM(w.data() + cntr, &(w[totalVsize + p]), w.data() + cntr, &(w[totalVsize + p]), BH.pointsCopyPan[p]);
+				cntr += n[p];
+#ifdef linScheme
+				cntr += n[p];
+#endif
+			}
+
 			double tPrecondFinish = omp_get_wtime();
 			timing3 += tPrecondFinish - tPrecondStart;
-			
+
 
 			H.resize(j + 2);
 
@@ -322,8 +434,8 @@ namespace BH
 			H[j + 1][j] = norm(w);
 
 			m = j + 1;
-			if (IterRot(H, rhs, gs, c, s, j + 1, vsize, BH.prm.epsGMRES, m, BH.prm.residualShow))			
-				break;			
+			if (IterRot(H, rhs[0], gs, c, s, j + 1, totalVsize, BH.prm.epsGMRES, m, BH.prm.residualShow))
+				break;
 
 			V.push_back((1 / H[j + 1][j]) * w);
 		}
@@ -331,10 +443,10 @@ namespace BH
 		//printf("------------------------------------------------------------------------\n");
 		niter = m;
 
-
-		for (int i = 0; i < m + 1; i++)
-			g[i] = 0.;
 		g[0] = beta;
+		for (int i = 1; i < m + 1; i++)
+			g[i] = 0.;
+
 
 		//GivensRotations
 		double oldValue;
@@ -375,25 +487,38 @@ namespace BH
 			for (int s = k + 1; s < m; ++s)
 				sum += H[k][s] * Y[s];
 			Y[k] = (g[k] - sum) / H[k][k];
-			ADDOP(m-k+1);
+			ADDOP(m - k + 1);
 		}
 		// end of Solve HY=g
 
-		for (int i = 0; i < vsize; i++)
-		{
-			sum = 0.0;
-			for (int j = 0; j < m; j++)
-				sum += V[j][i] * Y[j];
-			ADDOP(m);
-			X[i] += sum;
+		cntr = 0;
+		for (int p = 0; p < n.size(); p++) {
+#ifndef linScheme			
+			for (int i = 0; i < n[p]; i++)
+#else
+			for (int i = 0; i < 2 * n[p]; i++)
+#endif
+			{
+				sum = 0.0;
+				for (int j = 0; j < m; j++)
+					sum += V[j][i + cntr] * Y[j];
+				ADDOP(m);
+				X[p][i] += sum;
+			}
+			cntr += n[p];
+#ifdef linScheme
+			cntr += n[p];
+#endif
 		}
 		sum = 0.0;
-		for (int j = 0; j < m; j++)
-			sum += V[j][vsize] * Y[j];
-		ADDOP(m);
-		R += sum;
+		for (int p = 0; p < n.size(); p++) {
+			for (int j = 0; j < m; j++)
+				sum += V[j][totalVsize + p] * Y[j];
+			ADDOP(m);
+			R[p] += sum;
+		}
 
 	}
-
+#endif
 }//namespace BH
 

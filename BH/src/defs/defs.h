@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: defs.h                                                           |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 #pragma once
@@ -284,7 +284,7 @@ namespace BH
 		double arg;
 		Point2D pw = powz((1.0 / len) * z, -1.0 / q);
 		ADDOP(4);
-		
+
 		for (int j = 0; j <= q - 1; ++j)
 		{
 			arg = DPI * j / q;
@@ -303,235 +303,213 @@ namespace BH
 
 		return res;
 	}
-
-	/// Вспомогательная функция для асимптотической схемы
-	inline Point2D F(const Point2D& z, const int q, const int p)
+	inline Point2D Yfrom1(const numvector<Point2D, 2>& cs, const Point2D& idk, const int m, const int j, const int q, const int p)
 	{
-		Point2D res = { 0.0, 0.0 };
-		Point2D e, sum, sum1, sum2;
-		double arg;
-		Point2D pw = powz(z, -1.0 / q);
-		for (int j = 0; j <= q - 1; ++j)
-		{
-			arg = DPI * j / q;
-			e = { cos(arg * p), sin(arg * p) };
-			sum1 = multz({ cos(arg), sin(arg) }, pw);
-			sum2 = { sum1[0] + 1.0, sum1[1] };
-			sum = { 0.5 * log(sum2.length2()), atan2(sum2[1], sum2[0]) };
-			res += multz(e, sum);
-			ADDOP(13);
-		}
-
-		if (p & 1) //Если p - нечетное
-			res *= -1.0;
-		ADDOP(3);
-		return res;
+		Point2D e0, e1, temp, temp2, temp3, log1, mult1, Y;
+		double arg, theta;
+				temp = multz(cs[m], idk);
+				arg = DPI * (j+1) / q;
+				e0 = { cos(arg), sin(arg) };
+				e1 = { cos(arg * p), sin(arg * p) };
+				temp2 = multz(e0, powz(temp, (-1.0 / q)));
+				temp3 = { temp2[0] + 1, temp2[1] };
+				log1 = { 0.5 * log(temp3.length2()), atan2(temp3[1], temp3[0]) };
+				mult1 = multz(powz(temp, (double)(1.0 -(1.0 * p / q))), log1);
+				Y = multz(mult1, e1);
+		return multz(mult1, e1);
 	}
 
-	/// Вспомогательная функцтя для асимптотической схемы
-	inline Point2D Ftilde(const Point2D& z, const int q, const int p)
-	{
-		Point2D res = { 0.0, 0.0 };
-		Point2D e, sum, sum1, sum2;
-		double arg;
-		Point2D pw = powz(z, -1.0 / q);
-		for (int j = 0; j <= q / 2 - 1; ++j)
-		{
-			arg = DPI * j / q;
-			e = { cos(arg * p), sin(arg * p) };
-			sum1 = multz({ cos(arg), sin(arg) }, pw);
-			sum2 = { sum1[0] + 1, sum1[1] };
-			sum = { 0.5 * log(sum2.length2()), atan2(sum2[1], sum2[0]) };
-			res += multz(e, sum);
-			ADDOP(13);
-		}
-		for (int j = q / 2 + 1; j <= q - 1; ++j)
-		{
-			arg = DPI * j / q;
-			e = { cos(arg * p), sin(arg * p) };
-			sum1 = multz({ cos(arg), sin(arg) }, pw);
-			sum2 = { sum1[0] + 1, sum1[1] };
-			sum = { 0.5 * log(sum2.length2()), atan2(sum2[1], sum2[0]) };
-			res += multz(e, sum);
-			ADDOP(13);
-		}
-
-		if (p & 1)
-			res *= -1.0;
-		ADDOP(2);
-		return res;
-	}
-
-	/// Вспомогательная функцтя для асимптотической схемы
-	inline Point2D Neopr0(const Point2D& piast, const Point2D& kasiast, double leni, double len1, double s, const int q, const int p)
-	{
-		Point2D lam = Lambda(piast, kasiast, leni, len1, s);
-		Point2D sum1 = { 0.5 * log((lam[0] - 1) * (lam[0] - 1) + (lam[1] * lam[1])), atan2(lam[1], lam[0] - 1) };
-		Point2D sum2 = multz(powz(lam, (double)(q - p) / q), F(lam, q, p));
-		Point2D icmplx = (1.0 / (kasiast.length2())) * Point2D({ kasiast[0], -kasiast[1] });
-		ADDOP(16);
-		return (q * len1 / (DPI * (q - p))) * multz(icmplx, sum1 - sum2);
-	}
-
-	// Вспомогательная функция вычисления 
-	inline Point2D NeoprLow0(const Point2D& kasiast, double len1, double s, const int q, const int p)
-	{
-		Point2D sum1 = { log(q), 0.0 };
-		Point2D sum2 = Ftilde({ 1.0, 0.0 }, q, p);
-		Point2D icmplx = (1.0 / (kasiast.length2())) * Point2D({ kasiast[0], -kasiast[1] });
-		ADDOP(11);
-
-		return (q * len1 / (DPI * (q - p))) * multz(icmplx, sum1 - sum2);
-	}
-
-	/// Вспомогательная функцтя для асимптотической схемы
-	inline Point2D H(const Point2D& piast, double len1, const int q, const int p)
-	{
-		ADDOP(8);
-		return { 1.0 - (2.0 * q - p) * piast[0] / ((q - p)  * len1),  -((2.0 * q - p) * piast[1] / ((q - p) * len1)) };
-	}
-
-	/// Вспомогательная функцтя для асимптотической схемы
-	inline Point2D Neopr1(const Point2D& piast, const Point2D& kasiast, double leni, double len1, double s, const int q, const int p)
-	{
-		Point2D h = H(piast, len1, q, p);
-		Point2D lam = Lambda(piast, kasiast, leni, len1, s);
-		Point2D lam1 = { lam[0] - 1, lam[1] };
-		Point2D sum = multz(powz(lam, (double)(q - p) / q), F(lam, q, p));
-		Point2D sum1 = { 0.5 * log(lam1.length2()), atan2(lam1[1], lam1[0]) };
-		Point2D sum2 = { sum[0] - 1, sum[1] };
-
-		Point2D kasiast2 = multz(kasiast, kasiast);
-		Point2D icmplx = (1.0 / (kasiast2.length2())) * Point2D({ kasiast2[0], -kasiast2[1] });
-
-		Point2D sum3 = { multz(h, sum1)[0] - (h[0] - 1) - multz((h + lam1), sum2)[0], multz(h, sum1)[1] - (h[1]) - multz((h + lam1), sum2)[1] };
-		ADDOP(19);
-
-		return len1 * len1 * q / (DPI * (2.0 * q - p) * leni) * multz(icmplx, sum3);
-	}
-
-	/// Вспомогательная функцтя для асимптотической схемы
-	inline Point2D NeoprLow1(const Point2D& kasiast, double leni, double len1, const int q, const int p)
-	{
-		Point2D sum1 = { log(q), 0.0 };
-		Point2D sum2 = Ftilde({ 1.0, 0.0 }, q, p);
-		Point2D kasiast2 = multz(kasiast, kasiast);
-		Point2D icmplx = (1.0 / (kasiast2.length2())) * Point2D({ kasiast2[0], -kasiast2[1] });
-		Point2D sum = { 1.0 - (double)q / (q - p) * (sum1[0] - sum2[0]), (double)q / (q - p) * (sum1[1] - sum2[1]) };
-		ADDOP(18);
-
-		return len1 * len1 * q / (DPI * (2.0 * q - p) * leni) * multz(icmplx, sum);
-	}
-
-
-	/// Вспомогательная функцтя для асимптотической схемы
-	inline numvector<Point2D, 2> StoConstFrom1(const numvector<Point2D, 2>& pan1arb, const numvector<Point2D, 2>& paniarb, const int t, const params& prm)
+	inline numvector<Point2D, 2> StoConstFrom1_new(const numvector<Point2D, 2>& pan1arb, const numvector<Point2D, 2>& paniarb, const int t, const params& prm)
 	{
 		auto q = prm.q;
 		auto p = prm.p;
+		Point2D e, temp, temp1, temp2, temp3, temp4, H0, H1, log1, mult1, mult2, sum, sum1, sum2, sum3, H0_math, H1_math, h;
+		double arg, theta;
+		sum = { 0.0, 0.0 };
+		sum3 = { 0.0, 0.0 };
+		Point2D dk = (pan1arb[1] - pan1arb[0]);
+		Point2D di = (paniarb[1] - paniarb[0]);
+		Point2D idk = (1.0 / (dk.length2())) * Point2D({ dk[0], -dk[1] });
+		Point2D idi = (1.0 / (di.length2())) * Point2D({ di[0], -di[1] });
+		numvector<Point2D, 2> cs = { (paniarb[1] - pan1arb[0]), (paniarb[0] - pan1arb[0]) };
+		numvector<Point2D, 2> cp = { (paniarb[1] - pan1arb[1]), (paniarb[0] - pan1arb[1]) }; 
+		Point2D icp1 = (1.0 / (cp[1].length2())) * Point2D({cp[1][0], -cp[1][1]});
 		double len1 = sqrt((pan1arb[1] - pan1arb[0]) & (pan1arb[1] - pan1arb[0]));
 		double leni = sqrt((paniarb[1] - paniarb[0]) & (paniarb[1] - paniarb[0]));
 		Point2D kas1 = { (pan1arb[1] - pan1arb[0])[0] / len1, (pan1arb[1] - pan1arb[0])[1] / len1 };
-		Point2D kasi = { (paniarb[1] - paniarb[0])[0] / leni, (paniarb[1] - paniarb[0])[1] / leni };
-		Point2D nrm1 = { kas1[1], -kas1[0] };
-		Point2D nrmi = { kasi[1], -kasi[0] };
-		Point2D axx = kas1;
-		Point2D ayy = -nrm1;
-		Point2D nrmiast = { nrmi & axx, nrmi & ayy };
-		Point2D kasiast = { kasi & axx, kasi & ayy };
-		Point2D piast = { (paniarb[0] - pan1arb[0]) & axx, (paniarb[0] - pan1arb[0]) & ayy };
-		Point2D piendast = { (paniarb[1] - pan1arb[0]) & axx, (paniarb[1] - pan1arb[0]) & ayy };
-		Point2D Delta0, Delta1, Delta;
-		Point2D h = H(piast, len1, q[t], p[t]);
-		Point2D lam0 = Lambda(piast, kasiast, leni, len1, 0);
-		Point2D lam1 = Lambda(piast, kasiast, leni, len1, 1);
-		Point2D lower0, lower1, upper0, upper1;
-		Point2D S00, S0, S11, S1;
-		ADDOP(26);
 
+		//Поиск H0
+			theta = atan2(kas1[1], kas1[0]);
+			e = { cos(theta), -sin(theta) };
+			mult1 = ( leni/(DPI * (1.0 - (1.0 * p[t] / q[t]))) ) * e;
+			mult2 = multz(dk, idi);
+			temp1 = multz(cp[0], icp1);
+			log1 = { 0.5 * log(temp1.length2()), atan2(temp1[1], temp1[0]) };
+			for (int j = 0; j < q[t]; j++) {
+				sum += Yfrom1(cs, idk, 0, j, q[t], p[t]) - Yfrom1(cs, idk, 1, j, q[t], p[t]);
+			}
+			if (p[t] & 1)
+				sum *= -1.0;
+			temp2 = multz(mult1, mult2);
+			H0_math = multz(temp2, log1 - sum);
+			H0 = { H0_math[0], -H0_math[1] };
 
-		Point2D icmplx = (1.0 / (kasiast.length2())) * Point2D({ kasiast[0], -kasiast[1] });
-		Point2D kasiast2 = multz(kasiast, kasiast);
-		Point2D icmplx2 = (1.0 / (kasiast2.length2())) * Point2D({ kasiast2[0], -kasiast2[1] });
+		//Поиск H1
+			theta = atan2(kas1[1], kas1[0]);
+			e = { cos(theta), -sin(theta) };
+			mult1 = ( leni / (DPI * (2.0 - (1.0 * p[t] / q[t]))) ) * e;
+			mult2 = powz(multz(dk, idi), 2);
+			temp1 = multz(cp[0], icp1);
+			log1 = { 0.5 * log(temp1.length2()), atan2(temp1[1], temp1[0]) };
 
-		if ((piast[1] * piendast[1] > 0) || (piast[0] > 0))
-			Delta0 = { 0.0, 0.0 };
-		else
-		{
-			if (piast[1] > 0)
-				Delta0 = { -q[t] * len1 / (q[t] - p[t]) * icmplx[0], q[t] * len1 / (q[t] - p[t]) * icmplx[1] };
-			else
-				Delta0 = { q[t] * len1 / (q[t] - p[t]) * icmplx[0], -q[t] * len1 / (q[t] - p[t]) * icmplx[1] };
-			ADDOP(17);
+			temp = (2.0 - (1.0 * p[t] / q[t])) / (1.0 - (1.0 * p[t] / q[t])) * multz(cs[1], idk);
+			h = { 1 - temp[0], -temp[1] };
+
+			sum1 = multz(h, log1);
+			sum2 = multz(di, idk);
+			temp2 = h + multz(cp[0], idk);
+			temp3 = h + multz(cp[1], idk);
+			for (int j = 0; j < q[t]; j++) {
+				sum3 += multz(temp2, Yfrom1(cs, idk, 0, j, q[t], p[t])) - multz(temp3, Yfrom1(cs, idk, 1, j, q[t], p[t]));
+			}
+			if (p[t] & 1)
+				sum3 *= -1.0;
+			temp4 = multz(mult1, mult2);
+			H1_math = multz(temp4, sum1 + sum2 - sum3); 
+			//H1_math = multz(temp4, sum1 + sum2 - sum3) - 0.5 * H0;
+			H1 = { H1_math[0], -H1_math[1] };
+
+		return { H0, H1 };
+	}
+
+	inline numvector<Point2D, 2> StoConstFrom1_new1(const numvector<Point2D, 2>& pan1arb, const numvector<Point2D, 2>& paniarb, const int t, const params& prm)
+	{
+		auto q = prm.q;
+		auto p = prm.p;
+		Point2D e, temp, temp1, temp2, temp3, temp4, H0, H1, log1, mult1, mult2, sum, sum1, sum2, sum3, H0_math, H1_math, h, sum4;
+		double arg, theta;
+		sum = { 0.0, 0.0 };
+		sum1 = { 0.0, 0.0 };
+		sum3 = { 0.0, 0.0 };
+		sum4 = { 0.0, 0.0 };
+		Point2D dk = (pan1arb[1] - pan1arb[0]);
+		Point2D di = (paniarb[1] - paniarb[0]);
+		Point2D idk = (1.0 / (dk.length2())) * Point2D({ dk[0], -dk[1] });
+		Point2D idi = (1.0 / (di.length2())) * Point2D({ di[0], -di[1] });
+		numvector<Point2D, 2> cs = { (paniarb[1] - pan1arb[0]), (paniarb[0] - pan1arb[0]) };
+		numvector<Point2D, 2> cp = { (paniarb[1] - pan1arb[1]), (paniarb[0] - pan1arb[1]) };
+		Point2D icp1 = (1.0 / (cp[1].length2())) * Point2D({ cp[1][0], -cp[1][1] });
+		double len1 = sqrt((pan1arb[1] - pan1arb[0]) & (pan1arb[1] - pan1arb[0]));
+		double leni = sqrt((paniarb[1] - paniarb[0]) & (paniarb[1] - paniarb[0]));
+		Point2D kas1 = { (pan1arb[1] - pan1arb[0])[0] / len1, (pan1arb[1] - pan1arb[0])[1] / len1 };
+
+		//Поиск H0
+		theta = atan2(kas1[1], kas1[0]);
+		e = { cos(theta), -sin(theta) };
+		mult1 = (leni / (DPI * (1.0 - (1.0 * p[t] / q[t])))) * e;
+		mult2 = multz(dk, idi);
+		temp1 = (1.0 / q[t]) * multz(di, idk);
+		log1 = { 0.5 * log(temp1.length2()), atan2(temp1[1], temp1[0]) };
+		for (int j = 0; j < q[t]; j++) {
+			sum += Yfrom1(cs, idk, 0, j, q[t], p[t]);
+			if((j+1) !=  q[t] / 2)
+			sum4 += Yfrom1(cs, idk, 1, j, q[t], p[t]);
 		}
+		sum1 = sum - sum4;
+		if (p[t] & 1)
+			sum1 *= -1.0;
+		temp2 = multz(mult1, mult2);
+		H0_math = multz(temp2, log1 - sum1);
+		H0 = { H0_math[0], -H0_math[1] };
 
+		//Поиск H1
+		theta = atan2(kas1[1], kas1[0]);
+		e = { cos(theta), -sin(theta) };
+		mult1 = (leni / (DPI * (2.0 - (1.0 * p[t] / q[t])))) * e;
+		mult2 = powz(multz(dk, idi), 2);
+		temp1 = (1.0 / q[t]) * multz(di, idk);
+		log1 = { 0.5 * log(temp1.length2()), atan2(temp1[1], temp1[0]) };
 
-		if ((piast[1] * piendast[1] > 0) || (piast[0] > 0))
-			Delta1 = { 0.0, 0.0 };
-		else
-		{
-			if (piast[1] > 0)
-				Delta1 = q[t] * len1 * len1 / ((2.0 * q[t] - p[t]) * leni) * multz(icmplx2, h);
-			else
-				Delta1 = -q[t] * len1 * len1 / ((2.0 * q[t] - p[t]) * leni) * multz(icmplx2, h);;
-			ADDOP(8);
+		temp = (2.0 - (1.0 * p[t] / q[t])) / (1.0 - (1.0 * p[t] / q[t])) * multz(cs[1], idk);
+		h = { 1 - temp[0], -temp[1] };
+
+		sum1 = multz(h, log1);
+		sum2 = multz(di, idk);
+		temp2 = h + multz(cp[0], idk);
+		temp3 = h;
+		for (int j = 0; j < q[t]; j++) {
+			sum3 += multz(temp2, Yfrom1(cs, idk, 0, j, q[t], p[t]));
+			if ((j+1) != q[t]/2)
+				sum3 -= multz(temp3, Yfrom1(cs, idk, 1, j, q[t], p[t]));
 		}
+		if (p[t] & 1)
+			sum3 *= -1.0;
+		temp4 = multz(mult1, mult2);
+		H1_math = multz(temp4, sum1 + sum2 - sum3);
+		H1 = { H1_math[0], -H1_math[1] };
+		//H1 = Point2D({ H1_math[0], -H1_math[1] }) - 0.5 * H0;
+		return { H0, H1 };
+	}
 
-		if (sqrt((lam0[0] - 1) * (lam0[0] - 1) + lam0[1] * lam0[1]) < 1e-6)
-		{
-			Delta0 = { 0.0, 0.0 };
-			lower0 = NeoprLow0(kasiast, len1, 0, q[t], p[t]);
-			ADDOP(3);
+	inline numvector<Point2D, 2> StoConstFrom1_new2(const numvector<Point2D, 2>& pan1arb, const numvector<Point2D, 2>& paniarb, const int t, const params& prm)
+	{
+		auto q = prm.q;
+		auto p = prm.p;
+		Point2D e, temp, temp1, temp2, temp3, temp4, H0, H1, log1, mult1, mult2, sum, sum1, sum2, sum3, H0_math, H1_math, h;
+		double arg, theta;
+		sum = { 0.0, 0.0 };
+		sum3 = { 0.0, 0.0 };
+		Point2D dk = (pan1arb[1] - pan1arb[0]);
+		Point2D di = (paniarb[1] - paniarb[0]);
+		Point2D idk = (1.0 / (dk.length2())) * Point2D({ dk[0], -dk[1] });
+		Point2D idi = (1.0 / (di.length2())) * Point2D({ di[0], -di[1] });
+		numvector<Point2D, 2> cs = { (paniarb[1] - pan1arb[0]), (paniarb[0] - pan1arb[0]) };
+		numvector<Point2D, 2> cp = { (paniarb[1] - pan1arb[1]), (paniarb[0] - pan1arb[1]) };
+		Point2D icp1 = (1.0 / (cp[1].length2())) * Point2D({ cp[1][0], -cp[1][1] });
+		double len1 = sqrt((pan1arb[1] - pan1arb[0]) & (pan1arb[1] - pan1arb[0]));
+		double leni = sqrt((paniarb[1] - paniarb[0]) & (paniarb[1] - paniarb[0]));
+		Point2D kas1 = { (pan1arb[1] - pan1arb[0])[0] / len1, (pan1arb[1] - pan1arb[0])[1] / len1 };
+
+		//Поиск H0
+		theta = atan2(kas1[1], kas1[0]);
+		e = { cos(theta), -sin(theta) };
+		mult1 = (leni / (DPI * (1.0 - (1.0 * p[t] / q[t])))) * e;
+		mult2 = multz(dk, idi);
+		temp1 = multz(cp[0], icp1);
+		log1 = { 0.5 * log(temp1.length2()), atan2(temp1[1], temp1[0]) };
+		for (int j = 0; j < q[t]; j++) {
+			sum += Yfrom1(cs, idk, 1, j, q[t], p[t]);
 		}
-		else
-			lower0 = Neopr0(piast, kasiast, leni, len1, 0, q[t], p[t]);
+		if (p[t] & 1)
+			sum *= -1.0;
+		temp2 = multz(mult1, mult2);
+		H0_math = multz(temp2, log1 + sum);
+		H0 = { H0_math[0], -H0_math[1] };
 
-		if (sqrt((lam0[0] - 1) * (lam0[0] - 1) + lam0[1] * lam0[1]) <= 1e-6)
-		{
-			Delta1 = { 0.0, 0.0 };
-			lower1 = NeoprLow1(kasiast, leni, len1, q[t], p[t]);
-			ADDOP(3);
+		//Поиск H1
+		theta = atan2(kas1[1], kas1[0]);
+		e = { cos(theta), -sin(theta) };
+		mult1 = (leni / (DPI * (2.0 - (1.0 * p[t] / q[t])))) * e;
+		mult2 = powz(multz(dk, idi), 2);
+		temp1 = multz(cp[0], icp1);
+		log1 = { 0.5 * log(temp1.length2()), atan2(temp1[1], temp1[0]) };
+
+		temp = (2.0 - (1.0 * p[t] / q[t])) / (1.0 - (1.0 * p[t] / q[t])) * multz(cs[1], idk);
+		h = { 1 - temp[0], -temp[1] };
+
+		sum1 = multz(h, log1);
+		sum2 = multz(di, idk);
+		temp3 = h + multz(cp[1], idk);
+		for (int j = 0; j < q[t]; j++) {
+			sum3 += multz(temp3, Yfrom1(cs, idk, 1, j, q[t], p[t]));
 		}
-		else
-			lower1 = Neopr1(piast, kasiast, leni, len1, 0, q[t], p[t]);
-
-
-
-		if (sqrt(lam1.length2()) < 1e-6)
-		{
-			if (piast[1] > 0)
-				Delta0 = { -q[t] * len1 / (2.0 * (q[t] - p[t])) * icmplx[1], q[t] * len1 / (2.0 * (q[t] - p[t])) * icmplx[0] };
-			else
-				Delta0 = { q[t] * len1 / (2.0 * (q[t] - p[t])) * icmplx[1], -q[t] * len1 / (2.0 * (q[t] - p[t])) * icmplx[0] };
-			upper0 = { 0.0, 0.0 };
-			ADDOP(8);
-		}
-		else
-			upper0 = Neopr0(piast, kasiast, leni, len1, 1, q[t], p[t]);
-
-		ADDOP(2);
-
-		if (sqrt(lam1.length2()) < 1e-6)
-		{
-			if (piast[1] > 0)
-				Delta1 = { -q[t] * len1 * len1 / (2.0 * (2.0 * q[t] - p[t]) * leni) * multz(icmplx2, h)[1], q[t] * len1 * len1 / (2.0 * (2.0 * q[t] - p[t]) * leni) * multz(icmplx2, h)[0] };
-			else
-				Delta1 = { q[t] * len1 * len1 / (2.0 * (2.0 * q[t] - p[t]) * leni) * multz(icmplx2, h)[1], -q[t] * len1 * len1 / (2.0 * (2.0 * q[t] - p[t]) * leni) * multz(icmplx2, h)[0] };
-			upper1 = { 0.0, 0.0 };
-			ADDOP(16);
-		}
-		else
-			upper1 = Neopr1(piast, kasiast, leni, len1, 1, q[t], p[t]);
-
-		ADDOP(2);
-
-		S00 = { upper0[0] - lower0[0] + Delta0[0], -upper0[1] + lower0[1] - Delta0[1] };
-		S0 = { axx * S00[0] + ayy * S00[1] };
-
-		S11 = { upper1[0] - lower1[0] + Delta1[0], -upper1[1] + lower1[1] - Delta1[1] };
-		S1 = { axx * S11[0] + ayy * S11[1] };
-		ADDOP(8);
-		return { S0, S1 };
+		if (p[t] & 1)
+			sum3 *= -1.0;
+		temp4 = multz(mult1, mult2);
+		H1_math = multz(temp4, sum1 + sum2 + sum3);
+		H1 = { H1_math[0], -H1_math[1] };
+		//H1 = Point2D({ H1_math[0], -H1_math[1] }) - 0.5 * H0;
+		return { H0, H1 };
 	}
 #endif
 

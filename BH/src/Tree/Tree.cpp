@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Tree.cpp                                                         |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 #include <algorithm>
@@ -45,8 +45,8 @@ namespace BH
 	extern long long op;
 
 	//Конструктор
-	MortonTree::MortonTree(const params& prm_, int maxTreeLevel_, std::vector<PointsCopy>& points, bool ifpans)
-		: prm(prm_), pointsCopy(points), pans(ifpans), maxTreeLevel(maxTreeLevel_)
+	MortonTree::MortonTree(const params& prm_, int maxTreeLevel_, std::vector<PointsCopy>& points, bool ifpans, int index_)
+		: prm(prm_), pointsCopy(points), pans(ifpans), maxTreeLevel(maxTreeLevel_), index(index_)
 	{
 		mortonTree.resize(2 * points.size());
 		for (auto& c : mortonTree)
@@ -511,12 +511,20 @@ namespace BH
 				else if (calcCloseTrees)
 				{					
 					//std::cout << fromWho << std::endl;
-					lt.closeCells.push_back(fromWho);
+					if (treeInf->index < 0)
+						lt.closeCells.push_back(fromWho);
+					else
+						lt.closeCellsPfl[treeInf->index].push_back(fromWho);
 				}
 			}//else if
 		}//if (lowTree != this)
 		else if (calcCloseTrees)
-			lt.closeCells.push_back(lowCell); //себя тоже добавляем в ближнюю зону 
+		{
+			if (treeInf->index < 0)
+				lt.closeCells.push_back(lowCell); //себя тоже добавляем в ближнюю зону 
+			else
+				lt.closeCellsPfl[treeInf->index].push_back(lowCell);
+		}
 	}//CalcLocalCoeffToLowLevel(...)
 
 
@@ -682,8 +690,23 @@ namespace BH
 	}//CalcVeloBiotSavart(...)
 
 	//Расчет интегрального влияния от распределения завихренности панелей ближних ячеек (для решения СЛАУ)
-	void MortonTree::CalcInfluenceFromPanels(int lowCell)
+	void MortonTree::CalcInfluenceFromPanels(int lowCell, std::unique_ptr<MortonTree>& treeInf)
 	{
+		if ((treeInf->index == 0))
+		{
+			auto& lc = mortonTree[lowCell];
+			for (int i = lc.range[0]; i <= lc.range[1]; ++i)
+			{
+				PointsCopy& itDop = pointsCopy[mortonCodes[i].originNumber];
+				itDop.i00.resize(prm.airfoilFile.size());
+#ifdef linScheme
+				itDop.i01.resize(prm.airfoilFile.size());
+				itDop.i10.resize(prm.airfoilFile.size());
+				itDop.i11.resize(prm.airfoilFile.size());
+#endif
+			}
+		}
+
 		numvector<double, 3> alpha, lambda;
 
 		//auxillary vectors
@@ -698,12 +721,12 @@ namespace BH
 
 		//std::cout << "lc.closeCells.size() = " << lc.closeCells.size() << std::endl;
 
-		for (size_t k = 0; k < lc.closeCells.size(); ++k)
+		for (size_t k = 0; k < lc.closeCellsPfl[treeInf->index].size(); ++k)
 		{
 			//Локальные переменные для цикла
 			Point2D velI, velIlin;
 
-			const auto& rg = mortonTree[lc.closeCells[k]].range;
+			const auto& rg = treeInf->mortonTree[lc.closeCellsPfl[treeInf->index][k]].range;
 
 			//#pragma omp parallel for schedule(dynamic,10) ordered
 			//Обязательно должно быть закрыто распараллеливание!
@@ -724,23 +747,23 @@ namespace BH
 
 				const double cftReserve = 0.01;
 				if (k == 0)
-				{
-					itDop.i00.resize(0);
-					itDop.i00.reserve(int(cftReserve * n));
+				{					
+					itDop.i00[treeInf->index].resize(0);
+					itDop.i00[treeInf->index].reserve(int(cftReserve * n));
 
 #ifdef linScheme
-					itDop.i01.resize(0); 
-					itDop.i10.resize(0); 
-					itDop.i11.resize(0);
-					itDop.i01.reserve(int(cftReserve * n));
-					itDop.i10.reserve(int(cftReserve * n));
-					itDop.i11.reserve(int(cftReserve * n));
+					itDop.i01[treeInf->index].resize(0);
+					itDop.i10[treeInf->index].resize(0);
+					itDop.i11[treeInf->index].resize(0);
+					itDop.i01[treeInf->index].reserve(int(cftReserve * n));
+					itDop.i10[treeInf->index].reserve(int(cftReserve * n));
+					itDop.i11[treeInf->index].reserve(int(cftReserve * n));
 #endif
 				}
 
 				for (int j = rg[0]; j <= rg[1]; ++j)
 				{
-					auto& pt = pointsCopy[mortonCodes[j].originNumber]; //(mortonCodes[j].originNumber)-я панель
+					auto& pt = treeInf->pointsCopy[treeInf->mortonCodes[j].originNumber]; //(mortonCodes[j].originNumber)-я панель
 					const Point2D& posJ = pt.r();
 					const double& gamJ = pt.g();
 #ifdef linScheme
@@ -824,8 +847,15 @@ namespace BH
 								H01[0].toZero();
 								H01[1].toZero();
 
-								H01 = StoConstFrom1({ pt.panBegin, pt.panEnd }, { itDop.panBegin, itDop.panEnd }, t, prm);
-								
+								//auto H01old = StoConstFrom1({ pt.panBegin, pt.panEnd }, { itDop.panBegin, itDop.panEnd }, t, prm);
+								if (mortonCodes[i].originNumber == prm.KK[t] + 1)
+									H01 = StoConstFrom1_new1({ pt.panBegin, pt.panEnd }, { itDop.panBegin, itDop.panEnd }, t, prm);
+								else
+								if (mortonCodes[i].originNumber == prm.KKm[t])
+									H01 = StoConstFrom1_new2({ pt.panBegin, pt.panEnd }, { itDop.panBegin, itDop.panEnd }, t, prm);
+								else
+									H01 = StoConstFrom1_new({ pt.panBegin, pt.panEnd }, { itDop.panBegin, itDop.panEnd }, t, prm);
+
 								i01 = /*taui &*/ (ilenj * ileni * DPI * (H01[0].kcross())) - (1.0 / (1.0 - prm.mu[t]) * i00);
 								i11 = /*taui &*/ (ilenj * ileni * DPI * ((H01[1]-0.5 * H01[0]).kcross())) - (1.0 / (1.0 - prm.mu[t]) * i10);
 								ADDOP(16);
@@ -836,7 +866,14 @@ namespace BH
 								H11[0].toZero();
 								H11[1].toZero();
 
-								H11 = StoConstFrom1({ pt.panEnd, pt.panBegin }, { itDop.panEnd, itDop.panBegin }, t, prm);
+
+								if (mortonCodes[i].originNumber == prm.KK[t])
+										H11 = StoConstFrom1_new2({ pt.panEnd, pt.panBegin }, { itDop.panEnd, itDop.panBegin }, t, prm);
+								else
+									if (mortonCodes[i].originNumber == prm.KKm[t] - 1) 
+										H11 = StoConstFrom1_new1({ pt.panEnd, pt.panBegin }, { itDop.panEnd, itDop.panBegin }, t, prm);
+									else
+										H11 = StoConstFrom1_new({ pt.panEnd, pt.panBegin }, { itDop.panEnd, itDop.panBegin }, t, prm);
 
 								i01 = ileni * ilenj * DPI * H11[0].kcross() - (1.0 / (1.0 - prm.mu[t]) * i00);
 								i11 = -(ileni * ilenj * DPI * (H11[1] - 0.5 * H11[0]).kcross() + (1.0 / (1.0 - prm.mu[t]) * i10));
@@ -846,32 +883,33 @@ namespace BH
 #endif
 
 #endif
-
-						if (isAfter(itDop, pt))
+						if (treeInf.get() == this)
 						{
-							itDop.a = i00 * IDPI;
-							ADDOP(2);
+							if (isAfter(itDop, pt))
+							{
+								itDop.a = i00 * IDPI;
+								ADDOP(2);
 
 #ifdef linScheme
-							itDop.a1 = i11 * IDPI;
-							ADDOP(2);
+								itDop.a1 = i11 * IDPI;
+								ADDOP(2);
 #endif
-						}
-						if (isAfter(pt, itDop))
-						{
-							itDop.c = i00 * IDPI;
-							ADDOP(2);
+							}
+							if (isAfter(pt, itDop))
+							{
+								itDop.c = i00 * IDPI;
+								ADDOP(2);
 
 #ifdef linScheme
-							itDop.c1 = i11 * IDPI;
-							ADDOP(2);
-
+								itDop.c1 = i11 * IDPI;
+								ADDOP(2);
 #endif
+							}
 						}
 //#pragma omp ordered
 {
-						SizeCheck(itDop.i00);
-						itDop.i00.push_back(i00);
+						SizeCheck(itDop.i00[treeInf->index]);
+						itDop.i00[treeInf->index].push_back(i00);
 
 						//if (itDop.i00.size() > 5000)
 						//	std::cout << "itDop.i00.size = " << itDop.i00.size() << std::endl;
@@ -881,14 +919,14 @@ namespace BH
 
 #ifdef linScheme					
 
-						SizeCheck(itDop.i01);
-						itDop.i01.push_back(i01);
+						SizeCheck(itDop.i01[treeInf->index]);
+						itDop.i01[treeInf->index].push_back(i01);
 
-						SizeCheck(itDop.i10);
-						itDop.i10.push_back(i10);
+						SizeCheck(itDop.i10[treeInf->index]);
+						itDop.i10[treeInf->index].push_back(i10);
 
-						SizeCheck(itDop.i11);
-						itDop.i11.push_back(i11);
+						SizeCheck(itDop.i11[treeInf->index]);
+						itDop.i11[treeInf->index].push_back(i11);
 
 						velI += gamJlin * i01;
 						velIlin += gamJ * i10 + gamJlin * i11;
@@ -909,17 +947,17 @@ namespace BH
 
 
 	// Обновление влияния от слоев внутри одного уровня от панелей всех ближних уровней (для решения СЛАУ)
-	void MortonTree::UpdateInfluence(int lowCell)
+	void MortonTree::UpdateInfluence(int lowCell, std::unique_ptr<MortonTree>& treeInf)
 	{
 		auto& lc = mortonTree[lowCell];
 
 		std::vector<int> s(lc.range[1] - lc.range[0] + 1, 0);
 
-		for (size_t k = 0; k < lc.closeCells.size(); ++k)
+		for (size_t k = 0; k < lc.closeCellsPfl[treeInf->index].size(); ++k)
 		{
 			//Локальные переменные для цикла
 			Point2D velI, velIlin;			
-			auto& rg = mortonTree[lc.closeCells[k]].range;
+			auto& rg = treeInf->mortonTree[lc.closeCellsPfl[treeInf->index][k]].range;
 			int inum = 0;
 			for (int i = lc.range[0]; i <= lc.range[1]; ++i, ++inum)
 			{
@@ -932,7 +970,7 @@ namespace BH
 				
 				for (int j = rg[0]; j <= rg[1]; ++j)
 				{
-					const PointsCopy& itDop2 = pointsCopy[mortonCodes[j].originNumber];
+					const PointsCopy& itDop2 = treeInf->pointsCopy[mortonCodes[j].originNumber];
 					const Point2D& posJ = itDop2.r();
 					const double& gamJ = itDop2.g();
 #ifdef linScheme	
@@ -941,12 +979,12 @@ namespace BH
 
 					if (posI != posJ)
 					{
-						velI += gamJ * (itDop.i00[s[inum]]);
+						velI += gamJ * (itDop.i00[treeInf->index][s[inum]]);
 						ADDOP(2);
 
 #ifdef linScheme					
-						velI += gamJlin * (itDop.i01[s[inum]]);
-						velIlin += gamJ * (itDop.i10[s[inum]]) + gamJlin * (itDop.i11[s[inum]]);
+						velI += gamJlin * (itDop.i01[treeInf->index][s[inum]]);
+						velIlin += gamJ * (itDop.i10[treeInf->index][s[inum]]) + gamJlin * (itDop.i11[treeInf->index][s[inum]]);
 						ADDOP(6);
 
 #endif

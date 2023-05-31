@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.3    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2022/12/08     |
+|        #####   ##  ##         |                            | Version 1.4    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2022 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Tree.h                                                           |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.3
-\date 08 декабря 2022 г.
+\version 1.4
+\date 31 мая 2023 г.
 */
 
 #ifndef TREE_H_
@@ -53,8 +53,8 @@ namespace BH
 	\author Марчевский Илья Константинович
 	\author Рятина Евгения Павловна
 	\author Колганова Александра Олеговна
-	\version 1.3
-	\date 08 декабря 2022 г.
+	\version 1.4
+	\date 31 августа 2023 г.
 	*/
 	struct TParticleCode
 	{
@@ -77,8 +77,8 @@ namespace BH
 	\author Марчевский Илья Константинович
 	\author Рятина Евгения Павловна
 	\author Колганова Александра Олеговна
-	\version 1.3
-	\date 08 декабря 2022 г.
+	\version 1.4
+	\date 31 мая 2023 г.
 	*/
 	struct treeCellT
 	{
@@ -117,6 +117,9 @@ namespace BH
 		/// (там, где надо считать влияние "напрямую"), 
 		/// имеет смысл только для нижних уровней
 		std::vector<int> closeCells;
+
+		std::vector<std::vector<int>> closeCellsPfl;
+
 	};
 
 
@@ -125,8 +128,8 @@ namespace BH
 	\author Марчевский Илья Константинович
 	\author Рятина Евгения Павловна
 	\author Колганова Александра Олеговна
-	\version 1.3
-	\date 08 декабря 2022 г.
+	\version 1.4
+	\date 31 мая 2023 г.
 	*/
 	class MortonTree
 	{
@@ -197,6 +200,9 @@ namespace BH
 		inline void RSort_Parallel(TParticleCode* m, TParticleCode* m_temp, unsigned int n, unsigned int* s);
 
 	public:
+
+		int index;
+
 		/// Спикок обратных факториалов целых чисел
 		std::vector<double> iFact;
 
@@ -226,10 +232,11 @@ namespace BH
 		}
 				
 		//Конструктор
-		MortonTree(const params& prm_, int maxTreeLevel_, std::vector<PointsCopy>& points, bool ifpans);
+		MortonTree(const params& prm_, int maxTreeLevel_, std::vector<PointsCopy>& points, bool ifpans, int index);
 		
 		/// Вектор индесков ячеек нижнего уровня в дереве 
 		std::vector<int> mortonLowCells;
+		//std::vector<std::vector<int>> mortonLowCells;
 
 		/// \brief Мортоновское дерево
 		/// Размер дерева равен сумме числа внутренних вершин 
@@ -275,11 +282,11 @@ namespace BH
 		
 		/// Расчет интегрального влияния от распределения завихренности панелей ближних ячеек (для решения ГИУ)
 		/// \param[in] lowCell --- индекс ячейки нижнего уровня, в которой рассчитывается влияние
-		void CalcInfluenceFromPanels(int lowCell);
+		void CalcInfluenceFromPanels(int lowCell, std::unique_ptr<MortonTree>& treeInf);
 
 		/// Обновление влияния от слоев внутри одного уровня от панелей всех ближних уровней (для решения ГИУ)
 		/// \param[in] lowCell --- индекс ячейки нижнего уровня, в которой рассчитывается влияние
-		void UpdateInfluence(int lowCell);
+		void UpdateInfluence(int lowCell, std::unique_ptr<MortonTree>& treeInf);
 
 		/// Расчет точечного влияния от распределения завихренности панелей ближних ячеек (для решения СЛАУ)
 		/// \param[in] lowCell --- индекс ячейки нижнего уровня, в которой рассчитывается влияние
