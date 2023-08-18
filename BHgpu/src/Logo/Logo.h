@@ -1,6 +1,6 @@
 /*--------------------------------*- BHgpu -*----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.4    |
-| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/03/28     |
+| #####   ##  ##                |                            | Version 1.5    |
+| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/08/29     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.4
-\date 28 марта 2023 г.
+\version 1.5
+\date 29 августа 2023 г.
 */
 
 #ifndef LOGO_H_
@@ -49,8 +49,8 @@ namespace BHcu
 	{
 		str <<
 			"/*--------------------------------*- BHgpu -*----------------*---------------*\\" << '\n' << \
-			"| #####   ##  ##                |                            | Version 1.4    |" << '\n' << \
-			"| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2023/03/28     |" << '\n' << \
+			"| #####   ##  ##                |                            | Version 1.5    |" << '\n' << \
+			"| ##  ##  ##  ##   ####  ##  ## |  BHcu: Barnes-Hut method   | 2023/08/29     |" << '\n' << \
 			"| #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*" << '\n' << \
 			"| ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |" << '\n' << \
 			"| #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |" << '\n' << \
@@ -76,7 +76,7 @@ namespace BHcu
 
 
 
-	void PrintStatistics(int run, int runs, int error,
+	void PrintStatistics(int run, int runs,
 		const float* timing, const float* mintiming, const float* avtiming,
 		double runtime, double minruntime, double avruntime)
 	{
@@ -85,7 +85,7 @@ namespace BHcu
 			std::cout << std::endl;
 			std::cout << "                         Time statistics                                " << std::endl;
 			std::cout << "------------------------------------------------------------------------" << std::endl;
-			std::cout << "  run/runs  total      BBK   TBK   SKK   SRK     FCK      ker.time      " << std::endl;
+			std::cout << "  run/runs  total      BBK   TBK   CLK   SKK     FCK      ker.time      " << std::endl;
 		}
 
 
@@ -97,12 +97,7 @@ namespace BHcu
 		printf(" %4.1f ", timing[4]);
 		printf(" %6.1f ", timing[5]);
 
-		if (error == 0) {
-			printf(") = %6.1f ms\n", timing[6]);
-		}
-		else {
-			printf(") = %6.1f ms FAILED %d\n", timing[6], error);
-		}
+		printf(") = %6.1f ms\n", timing[6]);		
 
 		if (run == runs - 1)
 		{

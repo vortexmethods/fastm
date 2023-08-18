@@ -1,6 +1,6 @@
 /*--------------------------------*- BHgpu -*----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.4    |
-| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/03/28     |
+| #####   ##  ##                |                            | Version 1.5    |
+| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/08/29     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.4
-\date 28 марта 2023 г.
+\version 1.5
+\date 29 августа 2023 г.
 */
 
 #ifndef OPERATIONS_H_
@@ -88,7 +88,24 @@ namespace BHcu
 		return res;
 	}
 
+
+	__device__ __forceinline real2 operator*(int a, real2 b)
+	{
+		real2 res;
+		res.x = a * b.x;
+		res.y = a * b.y;
+		return res;
+	}
+
 	__device__ __forceinline real2 operator*(real2 b, real a)
+	{
+		real2 res;
+		res.x = a * b.x;
+		res.y = a * b.y;
+		return res;
+	}
+
+	__device__ __forceinline real2 operator*(real2 b, int a)
 	{
 		real2 res;
 		res.x = a * b.x;
@@ -105,6 +122,13 @@ namespace BHcu
 	}
 
 	__device__ __forceinline real2& operator+=(real2& a, real2 b)
+	{
+		a.x += b.x;
+		a.y += b.y;
+		return a;
+	}
+
+	__device__ __forceinline real2& operator-=(real2& a, real2 b)
 	{
 		a.x += b.x;
 		a.y += b.y;
@@ -178,15 +202,12 @@ namespace BHcu
 	}
 
 	__device__ __forceinline
-	int Delta(int i, int j, int nbodies, int* __restrict MmortonCodesKeyd)
+	int Delta(const int i, const int j, const int nbodies, const int* __restrict MmortonCodesKeyd)
 	{
 		if ((j < 0) || (j > nbodies - 1))
 			return -1;
 
-		const int& ki = MmortonCodesKeyd[i];
-		const int& kj = MmortonCodesKeyd[j];
-
-		int count = __clz(ki ^ kj);
+		int count = __clz(MmortonCodesKeyd[i] ^ MmortonCodesKeyd[j]);
 
 		if ((count == 32) && (i != j))
 		{

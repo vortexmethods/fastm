@@ -1,6 +1,6 @@
 /*--------------------------------*- BHgpu -*----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.4    |
-| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/03/28     |
+| #####   ##  ##                |                            | Version 1.5    |
+| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/08/29     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.4
-\date 28 марта 2023 г.
+\version 1.5
+\date 29 августа 2023 г.
 */
 
 #include "cuKernels.cuh"
@@ -49,7 +49,7 @@
 #include "Point2D.h"
 
 #define WARPSIZE 32
-#define MAXDEPTH 32
+#define MAXDEPTH 28
 #define BLOCKD 32
 
 #define codeLength 14
@@ -58,7 +58,7 @@
 namespace BHcu
 {
     int blocks;
-__device__ volatile int bottomd, maxdepthd;
+__device__ volatile int bottomd;
 __device__ unsigned int blkcntd;
 __device__ volatile real radiusd;
 
@@ -197,14 +197,21 @@ void CudaTest(const char* msg)
 /// CUDA Kernels
 //////////////////
 
+__constant__ int binomCft[order * (order + 1)];
+
+void setBinomCftConst(int* cft)
+{
+    cudaMemcpyToSymbol(binomCft, cft, order * (order + 1) * sizeof(int));
+}
+
+
+
 /******************************************************************************/
 /*** initialize memory ********************************************************/
 /******************************************************************************/
 
-__global__ void InitializationKernel(int* __restrict errd)
+__global__ void InitializationKernel()
 {
-    *errd = 0;
-    maxdepthd = 1;
     blkcntd = 0;
 }
 
@@ -214,7 +221,12 @@ __global__ void InitializationKernel(int* __restrict errd)
 /******************************************************************************/
 __global__
 __launch_bounds__(THREADS1, FACTOR1)
-void MBoundingBoxKernel(int nbodiesd, volatile real2* __restrict posd, volatile real2* __restrict Mposd, volatile real2* __restrict maxrd, volatile real2* __restrict minrd)
+void MBoundingBoxKernel(
+    const int nbodiesd, 
+    const real3* __restrict vtxd, 
+    real2* __restrict Mposd, 
+    volatile real2* __restrict maxrd, 
+    volatile real2* __restrict minrd)
 {
     register int i, j, k, inc;
     register real2 val;
@@ -222,15 +234,15 @@ void MBoundingBoxKernel(int nbodiesd, volatile real2* __restrict posd, volatile 
     __shared__ volatile real2 sminr[THREADS1], smaxr[THREADS1];
 
     // initialize with valid data (in case #bodies < #threads)
-    minr.x = maxr.x = posd[0].x;
-    minr.y = maxr.y = posd[0].y;
+    minr.x = maxr.x = vtxd[0].x;
+    minr.y = maxr.y = vtxd[0].y;
 
     // scan all bodies
     i = threadIdx.x;
     inc = THREADS1 * gridDim.x;
     for (j = i + blockIdx.x * THREADS1; j < nbodiesd; j += inc) {
-        val.x = posd[j].x;
-        val.y = posd[j].y;
+        val.x = vtxd[j].x;
+        val.y = vtxd[j].y;
 
         minr.x = realmin(minr.x, val.x);
         maxr.x = realmax(maxr.x, val.x);
@@ -282,10 +294,8 @@ void MBoundingBoxKernel(int nbodiesd, volatile real2* __restrict posd, volatile 
             radiusd = realmax(maxr.x - minr.x, maxr.y - minr.y) / 2;
 
             // create root node
-            k = 0;
-
-            Mposd[k].x = (minr.x + maxr.x) / 2;
-            Mposd[k].y = (minr.y + maxr.y) / 2;            
+            Mposd[0].x = (minr.x + maxr.x) / 2;
+            Mposd[0].y = (minr.y + maxr.y) / 2;            
         }
     }
 }
@@ -295,15 +305,18 @@ void MBoundingBoxKernel(int nbodiesd, volatile real2* __restrict posd, volatile 
 /******************************************************************************/
 
 __global__
-void MMortonCodesKernel (int nbodies, volatile real2* __restrict posd, 
-    volatile int* __restrict MmortonCodesKeyUnsortd, volatile int* __restrict MmortonCodesIdxUnsortd)
+void MMortonCodesKernel (
+    const int nbodies, 
+    const real3* __restrict vtxd, 
+    int* __restrict MmortonCodesKeyUnsortd, 
+    int* __restrict MmortonCodesIdxUnsortd)
 {
 	int bdy = blockDim.x * blockIdx.x + threadIdx.x;
 
 	if (bdy < nbodies)
 	{
-		real x = twoPowCodeLength * posd[bdy].x;
-		real y = twoPowCodeLength * posd[bdy].y;
+		real x = twoPowCodeLength * vtxd[bdy].x;
+		real y = twoPowCodeLength * vtxd[bdy].y;
 
 		unsigned int xx = MExpandBits((unsigned int)x);
 		unsigned int yy = MExpandBits((unsigned int)y);
@@ -312,13 +325,14 @@ void MMortonCodesKernel (int nbodies, volatile real2* __restrict posd,
 	}
 }
 
+
 /******************************************************************************/
 /*** Morton Internal nodes tree build *****************************************/
 /******************************************************************************/
 __global__
 void MMortonInternalNodesKernel(
-    int nbodies, 
-    int* __restrict MmortonCodesKeyd, 
+    const int nbodies, 
+    const int* __restrict MmortonCodesKeyd, 
     int* __restrict Mparentd, 
     int2* __restrict Mchildd, 
     int2* __restrict Mranged)
@@ -352,7 +366,7 @@ void MMortonInternalNodesKernel(
         }//for p
 
 
-        int gamma = i + s * d +    d * (d < 0);   //последнее слагаемое = std::min(d, 0);
+        int gamma = i + s * d +   d * (d < 0);   //последнее слагаемое = std::min(d, 0);
 
         int Mmin = min(i, j);
         int Mmax = max(i, j);
@@ -381,11 +395,11 @@ void MMortonInternalNodesKernel(
 /******************************************************************************/
 __global__
 void MMortonInternalCellsGeometryKernel(
-    int nbodies,
-    int* __restrict MmortonCodesKeyd,
+    const int nbodies,
+    const int* __restrict MmortonCodesKeyd,
     real2* __restrict Mposd,
     real2* __restrict Msized,
-    int2* __restrict Mranged,
+    const int2* __restrict Mranged,
     int* __restrict MlevelUnsortd,
     int* __restrict MindexUnsortd
 )
@@ -435,6 +449,23 @@ void MMortonInternalCellsGeometryKernel(
 }//MMortonInternalCellsGeometryKernel(...)
 
 
+/******************************************************************************/
+/*** permutation list transposition *******************************************/
+/******************************************************************************/
+__global__
+void MTransposeIndexKernel(
+    const int nbodiesd, const int nnodesd,
+    const int* __restrict MindexSortd, 
+    int* __restrict MindexSortTd)
+{
+    register const int cell = blockDim.x * blockIdx.x + threadIdx.x;
+    register const int newcell = MindexSortd[cell];
+
+    if (cell < nbodiesd - 1)
+        MindexSortTd[newcell] = cell;       
+
+}//MTransposeIndexKernel
+
 
 
 /******************************************************************************/
@@ -443,288 +474,67 @@ void MMortonInternalCellsGeometryKernel(
 
 __global__
 __launch_bounds__(1024, 1)
-void ClearKernel2(int nnodesd, int nbodiesd, volatile int* __restrict startd, volatile int* __restrict massd)
+void ClearKernel2(
+    const int nnodesd, const int nbodiesd, 
+    volatile int* __restrict massd)
 {
     register int k, inc, bottom;
 
-    bottom = nnodesd - (nbodiesd - 2); //bottomd;
+    bottom = nnodesd - (nbodiesd - 1); //bottomd;
     inc = blockDim.x * gridDim.x;
     k = (bottom & (-WARPSIZE)) + threadIdx.x + blockIdx.x * blockDim.x;  // align to warp size
     if (k < bottom) k += inc;
 
+// 0 1 ... (nb-1)  (nb+0) ... (nb+nb-2)
+// --------------  --------------------
+//     bodies              cells
+
     // iterate over all cells assigned to thread
-    while (k < nnodesd) {
-        massd[k] = -1;
-        startd[k] = -1;
+    while (k < nnodesd) 
+	{
+        massd[nnodesd - 1 - k] = -1;
         k += inc;
     }
 }
 
 
-__global__
-__launch_bounds__(1024, 1)
-void ClearKernel3(int nnodesd, int nbodies, const real* __restrict gamd, volatile real* __restrict momsd)
-{
-    register int k, inc;
-
-    inc = blockDim.x * gridDim.x;
-    k = threadIdx.x + blockIdx.x * blockDim.x;  // align to warp size
-    
-    // iterate over all cells assigned to thread
-    while (k < nnodesd) {   
-          momsd[k * (order * 2 - 1)] = (k < nbodies) ? gamd[k] : 0;
-          for(int s = 1; s < (order * 2 - 1); ++s)
-            momsd[k * (order * 2 - 1) + s] = 0;
-
-        k += inc;
-    }
-}
 
 /******************************************************************************/
 /*** compute center of mass ***************************************************/
 /******************************************************************************/
-__global__
-__launch_bounds__(THREADS3, FACTOR3)
-void SummarizationKernel2(const int nnodesd, const int nbodiesd, volatile int* __restrict countd, const int* __restrict childd, volatile int* __restrict massd, volatile real* __restrict momsd, volatile real2* __restrict posd,
-    const int* __restrict cftl)
-{
-    register int i, j, k, ch, inc, cnt, bottom, flag;
-
-    register real mom[order * 2 - 1];
-    //register volatile real* mom;
-    
-    register real cmom[order * 2 - 1];
-    
-    register real2 momh[order-1]; // (order-1) !!!
-    register real2 cen, dr;
-
-    register int m, cm;
-
-    register real binCft;
-
-    bottom = nnodesd - (nbodiesd - 2);// bottomd;
-      
-    __syncthreads();
-
-    inc = blockDim.x * gridDim.x;
-    k = (bottom & (-WARPSIZE)) + threadIdx.x + blockIdx.x * blockDim.x;  // align to warp size
-    
-    if (k < bottom) k += inc;
-
-    //register int restart = k;
-
-    flag = 0;
-    j = 0;
-    // iterate over all cells assigned to thread
-    while (k <= nnodesd) {
-        if (massd[k] >= 0) {
-            k += inc;
-        }
-        else {
-            if (j == 0) {
-                j = 2;
-                for (i = 0; i < 2; i++) {
-                    ch = childd[k * 2 + i];
-                    if ((ch < nbodiesd) || (massd[ch] >= 0)) {
-                        j--;
-                    }
-
-                }
-            }
-            else {
-                j = 2;
-                for (i = 0; i < 2; i++) {
-                    ch = childd[k * 2 + i];                    
-
-                    if ((ch < nbodiesd) || (massd[ch] >= 0))
-                    {
-                        j--;
-                    }
-                }
-            }
-
-            if (j == 0) {
-                // all children are ready
-
-                cm = 0;
-
-                for (int s = 0; s < (order * 2 - 1); ++s)
-                    cmom[s] = 0;
-
-                if (order > 1)
-                {
-                    cen.x = posd[k].x;
-                    cen.y = posd[k].y;
-                }
-
-
-                cnt = 0;
-                for (i = 0; i < 2; i++) {
-                    ch = childd[k * 2 + i];                   
-
-                    if (ch >= 0) {
-                        for (int s = 0; s < (order * 2 - 1); ++s)
-                            mom[s] = momsd[ch * (order * 2 - 1) + s];
-                        //mom = momsd + (ch * (order * 2 - 1));
-
-                        if (order > 1)
-                        {
-                            dr.x = posd[ch].x - cen.x; 
-                            dr.y = posd[ch].y - cen.y;
-                        }
-                        
-                        m = massd[ch];
-
-                        cnt += (ch >= nbodiesd) ? countd[ch] : 1;
-
-                        // add child's contribution    
-
-                        cmom[0] += mom[0];
-
-                        for (int p = 1; p < 2 * (order - 1); p += 2)
-                        {
-                            cmom[p + 0] += mom[p + 0];
-                            cmom[p + 1] += mom[p + 1];
-
-                            for (int q = 0; q < (p - 1) / 2; ++q)
-                                momh[q] = multz(momh[q], dr);                                
-
-                            if (p==1)
-                              momh[0] = mom[0] * dr;
-                            else
-                              momh[(int)(p - 1) / 2] = multz(mom[p - 2], mom[p - 1], dr);
-                            
-                            cmom[p + 0] += momh[0].x;
-                            cmom[p + 1] += momh[0].y;
-
-                            for (int q = 1; q < (p + 1) / 2; ++q)
-                            //for (int q = (p + 1) / 2 - 1; q>=0; --q)
-                            {
-                                binCft = cftl[((p + 1) / 2) * order + q]; 
-                                cmom[p + 0] += binCft * momh[q].x;
-                                cmom[p + 1] += binCft * momh[q].y;
-                            }
-                            
-                            
-                        }
-
-                        cm += m;
-                    }
-                }
-                countd[k] = cnt;
-
-                for (int s = 0; s < (order * 2 - 1); ++s)
-                    momsd[k * (order * 2 - 1) + s] = cmom[s];
-
-                flag = 1;
-            }
-        }
-
-        __threadfence();
-        __syncthreads();
-
-        if (flag != 0) {
-
-            atomicExch((int*)&massd[k], cm);
-            //massd[k] = cm;
-
-            k += inc;
-            flag = 0;
-        }
-    }
-
-    //for (int k = 0; k <= nnodesd; ++k)
-    //if ((countd[k] != massd[k]) && (massd[k] >= 0))
-    
-    //for (int k = 0; k <= nnodesd; ++k)
-    //if (massd[k] >= 0)
-    //    if (countd[k]!=0 || massd[k]!=1)
-    //        if (countd[k] != massd[k])
-    //            printf("k = %d, count = %d, massd = %d\n", k, countd[k], massd[k]);
-
-    for (int k = 0; k <= nnodesd; ++k)
-        if ((massd[k] < 0) && (countd[k]!=0))
-            printf("k = %d, count = %d, massd = %d\n", k, countd[k], massd[k]);
-}
-
-
-
-/******************************************************************************/
-/*** sort bodies **************************************************************/
-/******************************************************************************/
-__global__
-__launch_bounds__(THREADS4, FACTOR4)
-void SortKernel2(int nnodesd, int nbodiesd, volatile int* __restrict sortd, const int* __restrict countd, volatile int* __restrict startd, volatile int* __restrict childd)
-{
-    register int i, j, k, ch, dec, start, bottom;
-
-    bottom = nnodesd - (nbodiesd - 2); //bottomd;
-
-    //printf("startd[-1] = %d\n", startd[nnodesd]);
-
-    dec = blockDim.x * gridDim.x;
-    k = nnodesd + 1 - dec + threadIdx.x + blockIdx.x * blockDim.x;
-
-    // iterate over all cells assigned to thread
-    while (k >= bottom) {
-        start = startd[k];
-        if (start >= 0) {
-            j = 0;
-            for (i = 0; i < 2; i++) {
-                ch = childd[k * 2 + i];
-                if (ch >= 0) {
-                    if (i != j) {
-                        // move children to front (needed later for speed)
-                        //printf("sort: k = %d, childd = %d, %d, ch = %d, i = %d, j= %d\n", k, childd[k * 2 + 0], childd[k * 2 + 1], ch, i, j);
-                        childd[k * 2 + i] = -1;
-                        childd[k * 2 + j] = ch;
-                        
-                    }
-                    j++;
-                    if (ch >= nbodiesd) {
-                        // child is a cell
-                        startd[ch] = start;  // set start ID of child
-                        start += countd[ch];  // add #bodies in subtree
-                    }
-                    else {
-                        // child is a body
-                        sortd[start] = ch;  // record body in 'sorted' array
-                        start++;
-                    }
-                }
-            }
-            k -= dec;  // move on to next cell
-        }
-    }
-}
-
+#include "ShiftKernels/IncludeKer.cu"
 
 /******************************************************************************/
 /*** compute force ************************************************************/
 /******************************************************************************/
 __global__
 __launch_bounds__(THREADS5, FACTOR5)
-void ForceCalculationKernel2(int nnodesd, int nbodiesd, \
-    int* __restrict errd, real itolsqd, real epssqd, const int* __restrict sortd,
-    const int* __restrict childd, const real* __restrict momsd,
-    const real2* __restrict posd, volatile real2* __restrict veld, 
+void ForceCalculationKernel2(
+    const int nnodesd, const int nbodiesd,
+    const real itolsqd, const real epssqd,
+    const int2* __restrict Mchildd,
+    const real2* __restrict momsd,
+    const real3* __restrict vtxd,    
+    const int* __restrict MmortonCodesIdxd,
+    const real2* __restrict Mposd, const int* __restrict MindexSortd, const int* __restrict MindexSortTd,
+    real2* __restrict veld,  //veld - без volatile
     const real2* __restrict Msized)
 
 {
-register int i, j, k, n, depth, base, sbase, /*diff,*/ pd, nd;
-register real2 p, v, dr;
-register real r2;
-//register real mom[(order * 2 - 1)];
-register const real* mom;
+    register int j, k, n, depth, base, sbase, pd, nd;
+    register real2 p, v, dr, ps;
+    register real r2;
+    register const real2* mom;
+    //register real2 mom[order];  
+    //register real2 mom0, mom1, mom2, mom3, mom4, mom5, mom6, mom7, mom8, mom9, mom10, mom11, mom12, mom13;
 
-register real2 th;
+    register real2 th;
+    
 
-__shared__ volatile int pos[MAXDEPTH * THREADS5 / WARPSIZE], node[MAXDEPTH * THREADS5 / WARPSIZE];
+    __shared__ volatile int pos[MAXDEPTH * THREADS5 / WARPSIZE], node[MAXDEPTH * THREADS5 / WARPSIZE];
 
-maxdepthd = 28; ////////!!!!!!!!
 
-if (maxdepthd <= MAXDEPTH)
-{
+
     // figure out first thread in each warp (lane 0)
     base = threadIdx.x / WARPSIZE;
     sbase = base * WARPSIZE;
@@ -737,14 +547,8 @@ if (maxdepthd <= MAXDEPTH)
     // iterate over all bodies assigned to thread
     for (k = threadIdx.x + blockIdx.x * blockDim.x; k < nbodiesd; k += blockDim.x * gridDim.x)
     {
-        i = sortd[k];  // get permuted/sorted index
-        //if (i != k)
-        //    printf("i = %d, k = %d\n", i, k);
-
-
-        // cache position info
-        p.x = posd[i].x;
-        p.y = posd[i].y;
+        const int indexInParticles = MmortonCodesIdxd[k];
+        p = real2{ vtxd[indexInParticles].x, vtxd[indexInParticles].y };
 
         v.x = 0;
         v.y = 0;
@@ -754,7 +558,7 @@ if (maxdepthd <= MAXDEPTH)
         if (sbase == threadIdx.x)
         {
             pos[j] = 0;
-            node[j] = nnodesd * 2;
+            node[j] = nnodesd - 1;
         }
 
         do
@@ -763,77 +567,159 @@ if (maxdepthd <= MAXDEPTH)
             pd = pos[depth];
             nd = node[depth];
 
+            register int2 chBoth = Mchildd[MindexSortd[(nnodesd - 1) - nd]];
+
+			register real gm;
+			register real2 sumSide2;
+			bool isVortex;
+
             while (pd < 2)
             {
                 // node on top of stack has more children to process
-                n = childd[nd + pd];  // load child pointer
-                ++pd;
 
-                if (n >= 0)
-                {
-                    dr = p - posd[n];
+                // load child pointer
+                //computation of n = childd[nd + pd] (pd = 0 или pd = 1)
+				int chd = pd * chBoth.y + (1-pd) * chBoth.x;
+				++pd;
+				
+				isVortex = (chd >= nbodiesd);
+				
+				if (isVortex)
+				{
+					n = chd - nbodiesd;
+					ps = real2{ vtxd[MmortonCodesIdxd[n]].x, vtxd[MmortonCodesIdxd[n]].y };
+					gm = vtxd[MmortonCodesIdxd[n]].z;
+					sumSide2 = real2{ (real)0, (real)0 };
+				}
+				else
+				{
+					register const int srtT = MindexSortTd[chd];
+					n = (nnodesd - 1) - srtT;
+					ps = Mposd[chd];
+					mom = momsd + (srtT * order);
+					gm = mom[0].x;
+					sumSide2 = Msized[chd];
+				}
 
-                    mom = momsd + (n * (order * 2 - 1));
+				dr = p - ps;
 
-                    r2 = (dr.x * dr.x + dr.y * dr.y);   // compute distance squared (plus softening)
+				//for (i = 0; i < order; ++i)
+				//    mom[i] = momsd[n * order + i];
 
-                    real sumSide = Msized[n].x + Msized[n].y;
+				//mom0 = momsd[n * order];
+				//mom1 = momsd[n * order + 1];
+				//mom2 = momsd[n * order + 2];
+				//mom3 = momsd[n * order + 3];
+				//mom4 = momsd[n * order + 4];
+				//mom5 = momsd[n * order + 5];
+				//mom6 = momsd[n * order + 6];
+				//mom7 = momsd[n * order + 7];
+				//mom8 = momsd[n * order + 8];
+				//mom9 = momsd[n * order + 9];
+				//mom10 = momsd[n * order + 10];
+				//mom11 = momsd[n * order + 11];
+				//mom12 = momsd[n * order + 12];
+				//mom13 = momsd[n * order + 13];
 
-                    if ((n < nbodiesd) || __all_sync(0xffffffff, (sumSide * sumSide + epssqd) * itolsqd < r2))
-                        {  // check if all threads agree that cell is far enough away (or is a body)
+				r2 = (dr.x * dr.x + dr.y * dr.y);   // compute distance squared
 
-                            real f = mom[0] / realmax(r2, epssqd);
-                            v += f * dr;
-
-                            if (order > 1)
-                            {
-                                real2 cftr = (r2 ? (1 / r2) : 0) * dr;
-
-                                //s=1:
-                                th = multz(cftr, cftr);
-                                v += multzA(th, mom[1], mom[2]);
-
-                                for (int s = 3; s < (order * 2 - 1); s += 2)
-                                {
-                                    th = multz(th, cftr);
-#ifdef CALCinFLOAT                                    
-                                    if (isinf(th.x) || isinf(th.y))
-                                    {
-                                        //printf("s = %d\n", s);
-                                        break;
-                                    }
+				// check if all threads agree that cell is far enough away (or is a body)
+				if (isVortex || __all_sync(0xffffffff, ((sumSide2.x+sumSide2.y)*(sumSide2.x+sumSide2.y) + epssqd) * itolsqd < r2))
+				{  
+#ifdef CALCinDOUBLE
+					real f = gm / realmax(r2, epssqd);
+#else
+					real f = fdividef(gm, realmax(r2,epssqd));
 #endif
-                                    v += multzA(th, mom[s], mom[s + 1]);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            // push cell onto stack
-                            if (sbase == threadIdx.x)
-                            {  // maybe don't push and inc if last child
-                                pos[depth] = pd;
-                                node[depth] = nd;
-                            }
-                            depth++;
-                            pd = 0;
-                            nd = n * 2;
-                        }
-                    }
-                    else
-                    {
-                        pd = 2;  // early out because all remaining children are also zero
-                    }
-                }
-                depth--;  // done with this level
-            } while (depth >= j);
+					v += f * dr;
 
-            // update velocity
-            veld[i].x = -v.y;
-            veld[i].y = v.x;
-        }
+					if ((!isVortex) && (order > 1))
+					{
+#ifdef CALCinDOUBLE
+						real2 cftr = (r2 ? (1.0 / r2) : (real)0) * dr;
+#else
+						real2 cftr = (r2 ? fdividef(1.0f, r2) : 0.0f) * dr;
+#endif
+						th = cftr;
+						
+						for (int s = 1; s < order; ++s)
+						{
+							th = multz(th, cftr);
+#ifdef CALCinFLOAT                                    
+							if (isinf(th.x) || isinf(th.y))
+							{
+								//printf("s = %d\n", s);
+								break;
+							}
+#endif
+							v += multzA(th, mom[s]);
+						}
+						
+						//th = multz(th, cftr);
+						//v += multzA(th, mom1);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom2);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom3);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom4);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom5);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom6);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom7);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom8);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom9);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom10);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom11);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom12);
+
+						//th = multz(th, cftr);
+						//v += multzA(th, mom13);
+					}
+				}
+				else
+				{
+					// push cell onto stack
+					if (sbase == threadIdx.x)
+					{  // maybe don't push and inc if last child
+						pos[depth] = pd;
+						node[depth] = nd;
+					}
+					depth++;
+					pd = 0;
+					nd = n;
+
+					chBoth = Mchildd[MindexSortd[(nnodesd - 1) - nd]];
+				}
+                
+            }
+            depth--;  // done with this level
+        } while (depth >= j);
+
+        // update velocity
+
+        real2 result = real2{ -v.y, v.x };
+        veld[indexInParticles] = result;        
     }
-}
+} 
 
 
 /******************************************************************************/
@@ -843,22 +729,19 @@ if (maxdepthd <= MAXDEPTH)
 
 __global__
 //__launch_bounds__(THREADSD, FACTORD)
-void ForceDirectCalculationKernel(int nnodesd, int nbodiesd,
-    int* __restrict errd,
-    real itolsqd, real epssqd,
-    const int* __restrict sortd, const int* __restrict childd,
-    const real * __restrict momsd,
-    const real2* __restrict posd,
-    volatile real2* __restrict veld)
+void ForceDirectCalculationKernel(
+    const int nnodesd, const int nbodiesd,
+    const real epssqd,
+    const real3* __restrict vtxd,    
+    real2* __restrict veld)
 {
-    __shared__ real2 shr[BLOCKD];
-    __shared__ real shg[BLOCKD];
+    __shared__ real3 shvtx[BLOCKD];    
 
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
     real2 pt;
-    pt.x = posd[i].x;
-    pt.y = posd[i].y;
+    pt.x = vtxd[i].x;
+    pt.y = vtxd[i].y;
 
     real2 vel;
     vel.x = vel.y = 0;
@@ -866,13 +749,10 @@ void ForceDirectCalculationKernel(int nnodesd, int nbodiesd,
     real2 dr;
     real dr2, izn;
 
-
     //vortices
     for (size_t j = 0; j < nbodiesd; j += BLOCKD)
     {
-        shr[threadIdx.x].x = posd[(j + threadIdx.x)].x;
-        shr[threadIdx.x].y = posd[(j + threadIdx.x)].y;
-        shg[threadIdx.x] = momsd[(j + threadIdx.x)*(order * 2 -1)];//momd[(j + threadIdx.x)].gam;
+        shvtx[threadIdx.x] = vtxd[j + threadIdx.x];               
 
         __syncthreads();
 
@@ -880,11 +760,11 @@ void ForceDirectCalculationKernel(int nnodesd, int nbodiesd,
         {
             if (j + q < nbodiesd)
             {
-                dr.x = pt.x - shr[q].x;
-                dr.y = pt.y - shr[q].y;
+                dr.x = pt.x - shvtx[q].x;
+                dr.y = pt.y - shvtx[q].y;
                 dr2 = dr.x * dr.x + dr.y * dr.y;
 
-                izn = shg[q] / realmax(dr2, epssqd);// / CUboundDenom(dr2, eps2); //РЎРіР»Р°Р¶РёРІР°С‚СЊ РЅР°РґРѕ!!!
+                izn = shvtx[q].z / realmax(dr2, epssqd);// / CUboundDenom(dr2, eps2); //РЎРіР»Р°Р¶РёРІР°С‚СЊ РЅР°РґРѕ!!!
 
                 vel.x -= dr.y * izn;
                 vel.y += dr.x * izn;
@@ -912,12 +792,17 @@ void KernelsOptimization()
 
     cudaFuncSetCacheConfig(ClearKernel2, cudaFuncCachePreferL1);
     cudaGetLastError();  // reset error value
-
-    cudaFuncSetCacheConfig(ClearKernel3, cudaFuncCachePreferL1);
-    cudaGetLastError();  // reset error value
-
+        
     cudaFuncSetCacheConfig(ForceDirectCalculationKernel, cudaFuncCachePreferEqual); //d
     cudaGetLastError();  // reset error value
+        
+    cudaFuncSetCacheConfig(SummarizationKernel2_14, cudaFuncCachePreferL1);
+    cudaFuncSetCacheConfig(SummarizationKernel2_16, cudaFuncCachePreferL1);
+    cudaGetLastError();  // reset error value
+
+    cudaFuncSetCacheConfig(ForceCalculationKernel2, cudaFuncCachePreferL1); //d
+    cudaGetLastError();  // reset error value
+
 }
 
 
@@ -937,7 +822,7 @@ void KernelsOptimization()
     /*** initialize memory ********************************************************/
     /******************************************************************************/
 
-    float cuInitializationKernel(int* __restrict errd)
+    float cuInitializationKernel()
     {
         //fprintf(stderr, "IKKernel\n");
         
@@ -947,7 +832,7 @@ void KernelsOptimization()
         cudaEventCreate(&start);  cudaEventCreate(&stop);
 
         cudaEventRecord(start, 0);
-        InitializationKernel<<<1, 1>>> (errd);
+        InitializationKernel<<<1, 1>>> ();
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
         CudaTest("kernel 0 launch failed");
         
@@ -962,8 +847,8 @@ void KernelsOptimization()
     /******************************************************************************/
 	float McuBoundingBoxKernel(
 		int nbodiesd,
-		volatile realPoint* __restrict posd,
-		volatile realPoint* __restrict Mposd,
+		const realVortex* __restrict vtxd,
+		realPoint* __restrict Mposd,
 		volatile realPoint* __restrict maxrd, volatile realPoint* __restrict minrd)
 	{
 		cudaEvent_t start, stop;
@@ -972,7 +857,7 @@ void KernelsOptimization()
 		cudaEventCreate(&start);  cudaEventCreate(&stop);
 		cudaEventRecord(start, 0);
 
-		MBoundingBoxKernel<<<blocks * FACTOR1, THREADS1>>> (nbodiesd, (real2*)posd, (real2*)Mposd, (real2*)maxrd, (real2*)minrd);
+		MBoundingBoxKernel<<<blocks * FACTOR1, THREADS1>>> (nbodiesd, (real3*)vtxd, (real2*)Mposd, (real2*)maxrd, (real2*)minrd);
 		cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
 
 		CudaTest("Mkernel 1 launch failed");
@@ -987,11 +872,10 @@ void KernelsOptimization()
 
     float McuMortonCodesKernel(
         int nbodiesd,
-        realPoint* __restrict posd,
+        realVortex* __restrict vtxd,
         int* __restrict MmortonCodesKeyUnsortd, int* __restrict MmortonCodesIdxUnsortd,
         int* __restrict MmortonCodesKeyd, int* __restrict MmortonCodesIdxd,
-        intPair* __restrict Mranged
-        )
+        intPair* __restrict Mranged)
     {
         cudaEvent_t start, stop;
         float time;
@@ -1002,7 +886,7 @@ void KernelsOptimization()
         dim3 Mblocks = (nbodiesd + 31) / 32;
         dim3 Mthreads = 32;
 
-        MMortonCodesKernel << <Mblocks, Mthreads >> > (nbodiesd, (real2*)posd, MmortonCodesKeyUnsortd, MmortonCodesIdxUnsortd);
+        MMortonCodesKernel << <Mblocks, Mthreads >> > (nbodiesd, (real3*)vtxd, MmortonCodesKeyUnsortd, MmortonCodesIdxUnsortd);
 
 
         ///RadixSort
@@ -1016,7 +900,6 @@ void KernelsOptimization()
         //Заполнение нулевой ячейки (диапазон для корня дерева)
         int totalRange[2] = { 0, nbodiesd - 1 };
         cudaCopyVecToDevice(totalRange, Mranged, 2, sizeof(int));
-
 
 		cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
 
@@ -1063,11 +946,13 @@ void KernelsOptimization()
     }
 
 
+
     /******************************************************************************/
     /*** Morton Internal nodes geometry calculation *******************************/
     /******************************************************************************/
     float McuMortonInternalCellsGeometryKernel(
         int nbodiesd,
+        int nnodesd,
         int* __restrict MmortonCodesKeyd,
         realPoint* __restrict Mposd,
         realPoint* __restrict Msized,
@@ -1075,7 +960,8 @@ void KernelsOptimization()
         int* __restrict MlevelUnsortd,
         int* __restrict MlevelSortd,
         int* __restrict MindexUnsortd,
-        int* __restrict MindexSortd
+        int* __restrict MindexSortd,
+        int* __restrict MindexSortTd
     )
     {
         cudaEvent_t start, stop;
@@ -1084,18 +970,17 @@ void KernelsOptimization()
         cudaEventCreate(&start);  cudaEventCreate(&stop);
         cudaEventRecord(start, 0);
 
-        dim3 Mblocks = ((nbodiesd - 1) + 31) / 32;
+        dim3 Mblocks = ((nbodiesd) + 31) / 32;
         dim3 Mthreads = 32;
 
-		MMortonInternalCellsGeometryKernel << <Mblocks, Mthreads >> > (nbodiesd, MmortonCodesKeyd, (real2*)Mposd, (real2*)Msized, (int2*)Mranged,
-            MlevelUnsortd, MindexUnsortd);
-
+		MMortonInternalCellsGeometryKernel<<<Mblocks, Mthreads>>>(nbodiesd, MmortonCodesKeyd, (real2*)Mposd, (real2*)Msized, (int2*)Mranged, MlevelUnsortd, MindexUnsortd);
 
         RadixSortFromCUB( \
             MlevelUnsortd, MlevelSortd, \
             MindexUnsortd, MindexSortd, \
             nbodiesd-1, 0, 2 * codeLength);
 
+        MTransposeIndexKernel << <Mblocks, Mthreads >> > (nbodiesd, nnodesd, MindexSortd, MindexSortTd);
 
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
 
@@ -1114,12 +999,10 @@ void KernelsOptimization()
     /*** build tree ***************************************************************/
     /******************************************************************************/   
 
-    float cuClearKernel23(
+    float cuClearKernel2(
         int nnodesd, int nbodiesd,
-        volatile int* __restrict startd,
-        volatile int* __restrict massd,
-        const real* __restrict gamd,
-        volatile real* __restrict momsd)
+        volatile int* __restrict massd,        
+        volatile realPoint* __restrict momsd)
     {
         //fprintf(stderr, "CxKernel\n");
         cudaEvent_t start, stop;
@@ -1128,8 +1011,11 @@ void KernelsOptimization()
         cudaEventCreate(&start);  cudaEventCreate(&stop);
         cudaEventRecord(start, 0);
 
-        ClearKernel2 << <blocks * 1, 1024 >> > (nnodesd, nbodiesd, startd, massd);
-        ClearKernel3 << <blocks * 1, 1024 >> > (nnodesd, nbodiesd, gamd, momsd);
+        cudaMemset((void*)momsd, 0, (nbodiesd-1) * order * sizeof(realPoint));
+
+        ClearKernel2 << <blocks * 1, 1024 >> > (nnodesd, nbodiesd, massd);
+        
+	       	
 
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
 
@@ -1145,11 +1031,11 @@ void KernelsOptimization()
     /******************************************************************************/
     float cuSummarizationKernel2(
         const int nnodesd, const int nbodiesd,
-        volatile int* __restrict countd, const int* __restrict childd,
+        const intPair* __restrict Mchildd,
         volatile int* __restrict massd,
-        volatile real* __restrict momsd,
-        volatile realPoint* __restrict posd,
-        const int* __restrict cftl)
+        volatile realPoint* __restrict momsd,
+        const realVortex* __restrict vtxd, const int* __restrict MmortonCodesIdxd,
+        const realPoint* __restrict Mposd, const int* __restrict MindexSortd, const int* __restrict MindexSortTd)
     {
         //fprintf(stderr, "SKKernel\n");
 
@@ -1158,8 +1044,8 @@ void KernelsOptimization()
 
         cudaEventCreate(&start);  cudaEventCreate(&stop);
         cudaEventRecord(start, 0);
-
-        SummarizationKernel2 << <blocks * FACTOR3, THREADS3 >> > (nnodesd, nbodiesd, countd, childd, massd, momsd, (real2*)posd, cftl);
+        
+#include "ShiftKernels/SwitchKer.cu"
 
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
 
@@ -1170,44 +1056,20 @@ void KernelsOptimization()
         return time;
     }
 
-    /******************************************************************************/
-    /*** sort bodies **************************************************************/
-    /******************************************************************************/
-    float cuSortKernel2(
-        int nnodesd, int nbodiesd,
-        volatile int* __restrict sortd, const int* __restrict countd,
-        volatile int* __restrict startd, volatile int* __restrict childd)
-    {
-        //fprintf(stderr, "SRKernel\n");
-
-        cudaEvent_t start, stop;
-        float time;
-
-        cudaEventCreate(&start);  cudaEventCreate(&stop);
-        cudaEventRecord(start, 0);
-
-        SortKernel2 << <blocks * FACTOR4, THREADS4 >> > (nnodesd, nbodiesd, sortd, countd, startd, childd);
-
-        cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-
-        CudaTest("kernel 4 launch failed");
-
-        cudaEventDestroy(start);  cudaEventDestroy(stop);
-        return time;
-    }
+   
 
     /******************************************************************************/
     /*** compute force ************************************************************/
     /******************************************************************************/
     float cuForceCalculationKernel2(
         int nnodesd, int nbodiesd,
-        int* __restrict errd,
         real itolsqd, real epssqd,
-        const int* __restrict sortd, const int* __restrict childd,
-        const real* __restrict momsd,
-        const realPoint* __restrict posd,
+        const intPair* __restrict Mchildd,
+        const realPoint* __restrict momsd,
+        const realVortex* __restrict vtxd, const int* __restrict MmortonCodesIdxd,
+        const realPoint* __restrict Mposd, const int* __restrict MindexSortd, const int* __restrict MindexSortTd,
         volatile realPoint* __restrict veld,
-        volatile realPoint* __restrict Msized)
+        const realPoint* __restrict Msized)
     {
         //fprintf(stderr, "FCKernel\n");
 
@@ -1217,7 +1079,12 @@ void KernelsOptimization()
         cudaEventCreate(&start);  cudaEventCreate(&stop);
         cudaEventRecord(start, 0);
 
-        ForceCalculationKernel2 << <blocks * FACTOR5, THREADS5 >> > (nnodesd, nbodiesd, errd, itolsqd, epssqd, sortd, childd, momsd, (real2*)posd, (real2*)veld, (real2*)Msized);
+        ForceCalculationKernel2 << <blocks * FACTOR5, THREADS5 >> > (
+            nnodesd, nbodiesd, itolsqd, epssqd, (int2*)Mchildd, (real2*)momsd,
+            (real3*)vtxd, MmortonCodesIdxd,
+            (real2*)Mposd, MindexSortd, MindexSortTd,
+            (real2*)veld, (real2*)Msized);
+
         cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
 
         CudaTest("kernel 5 launch failed");
@@ -1232,11 +1099,8 @@ void KernelsOptimization()
 
     float cuForceDirectCalculationKernel(
         int nnodesd, int nbodiesd,
-        int* __restrict errd,
-        real itolsqd, real epssqd,
-        const int* __restrict sortd, const int* __restrict childd,
-        const real * __restrict momsd,
-        const realPoint * __restrict posd,
+        real epssqd,
+        const realVortex* __restrict vtxd,
         volatile realPoint* __restrict veld)
     {
         //fprintf(stderr, "DFKernel\n");
@@ -1247,7 +1111,7 @@ void KernelsOptimization()
         cudaEventCreate(&startD);  cudaEventCreate(&stopD);
         cudaEventRecord(startD, 0);
         
-        ForceDirectCalculationKernel<<<(nbodiesd + BLOCKD - 1) / BLOCKD, BLOCKD>>> (nnodesd, nbodiesd, errd, itolsqd, epssqd, sortd, childd, momsd, (real2*)posd, (real2*)veld);
+        ForceDirectCalculationKernel<<<(nbodiesd + BLOCKD - 1) / BLOCKD, BLOCKD>>> (nnodesd, nbodiesd, epssqd, (real3*)vtxd, (real2*)veld);
         cudaEventRecord(stopD, 0);  cudaEventSynchronize(stopD);  cudaEventElapsedTime(&timeD, startD, stopD);
         
         CudaTest("kernel direct launch failed");

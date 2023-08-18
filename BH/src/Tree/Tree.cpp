@@ -1,11 +1,11 @@
 /*---------------------------------*- BH -*------------------*---------------*\
-|        #####   ##  ##         |                            | Version 1.4    |
-|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2023/05/31     |
+|        #####   ##  ##         |                            | Version 1.5    |
+|        ##  ##  ##  ##         |  BH: Barnes-Hut method     | 2024/06/19     |
 |        #####   ######         |  for 2D vortex particles   *----------------*
 |        ##  ##  ##  ##         |  Open Source Code                           |
 |        #####   ##  ##         |  https://www.github.com/vortexmethods/fastm |
 |                                                                             |
-| Copyright (C) 2020-2023 I. Marchevsky, E. Ryatina, A. Kolganova             |
+| Copyright (C) 2020-2024 I. Marchevsky, E. Ryatina, A. Kolganova             |
 *-----------------------------------------------------------------------------*
 | File name: Tree.cpp                                                         |
 | Info: Source code of BH                                                     |
@@ -31,8 +31,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.4
-\date 31 мая 2023 г.
+\version 1.5
+\date 19 июня 2024 г.
 */
 
 #include <algorithm>
@@ -959,6 +959,10 @@ namespace BH
 			Point2D velI, velIlin;			
 			auto& rg = treeInf->mortonTree[lc.closeCellsPfl[treeInf->index][k]].range;
 			int inum = 0;
+
+			//if (lc.range[1] - lc.range[0] > 0)
+			//	std::cout << "!!!" << std::endl;
+
 			for (int i = lc.range[0]; i <= lc.range[1]; ++i, ++inum)
 			{
 				PointsCopy& itDop = pointsCopy[mortonCodes[i].originNumber];
@@ -968,6 +972,9 @@ namespace BH
 
 				const Point2D& posI = itDop.r();
 				
+				//if (rg[1]-rg[0] > 0)
+				//	std::cout << "???" << std::endl;
+
 				for (int j = rg[0]; j <= rg[1]; ++j)
 				{
 					const PointsCopy& itDop2 = treeInf->pointsCopy[mortonCodes[j].originNumber];

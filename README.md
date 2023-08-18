@@ -6,11 +6,11 @@ fastm: Fast algorithms for 2D vortex particle method
 ![Repo Size](https://img.shields.io/github/repo-size/vortexmethods/fastm.svg)
 ![License](https://img.shields.io/github/license/vortexmethods/fastm.svg)
 
-Copyright (C) 2020-2023 Ilia Marchevsky, Evgeniya Ryatina, Alexandra Kolganova
+Copyright (C) 2020-2024 Ilia Marchevsky, Evgeniya Ryatina, Alexandra Kolganova
 
 Программная реализация (с открытым исходным кодом) быстрых алгоритмов расчета скоростей вихревых частиц для двумерных методов вычислительной гидродинамики.
 
-Версия 1.4 от 31 мая 2023 г.
+Версия 1.5 от 19 июня 2024 г.
 
 ЛИЦЕНЗИЯ
 --------
@@ -223,6 +223,8 @@ Copyright (C) 2020-2023 Ilia Marchevsky, Evgeniya Ryatina, Alexandra Kolganova
 * Версия 1.3 (BH) обновлен код для BH, загрузка опций из файлов, оптимизация кода, улучшенная статистика; (FMM) оптимизация кода (24 августа 2022 г.)
 
 * Версия 1.4 (BHgpu) загружен код для BHgpu; (BH) возможность решения ГИУ для системы профилей (31 мая 2023 г.)
+
+* Версия 1.5 (BHgpu) обновлен код для BHgpu; (BH) исправлена реализация GMRES (19 июня 2024 г.)
 
 
 ВОПРОСЫ, ПРЕДЛОЖЕНИЯ И ЗАМЕЧАНИЯ

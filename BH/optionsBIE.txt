@@ -9,16 +9,23 @@
 \*---------------------------------------------------------------------------*/
 
 // Название задачи для файла с результатом
-task = "Ellipse12800";
+task = "Circle9x1000";
 
 // Имя файла со списком вихрей
-vortexFile = "../../test/Wake/wake1m.txt"; //надо его разархивировать!
+vortexFile = "../../test/Wake/wake0.txt"; //надо его разархивировать!
 
 // Максимальное количество уровней дерева
 numOfLevelsVortex = 18;
 
 // Имя файла со списком вершин профиля
-airfoilFile = "../../test/Ellipse4x1/Ellipse12800.txt";
+airfoilFile = {
+"../../test/Circle/Circle1000.txt", "../../test/Circle/Circle1000.txt",
+"../../test/Circle/Circle1000.txt", "../../test/Circle/Circle1000.txt",
+"../../test/Circle/Circle1000.txt", "../../test/Circle/Circle1000.txt",
+"../../test/Circle/Circle1000.txt", "../../test/Circle/Circle1000.txt",
+"../../test/Circle/Circle1000.txt"};
+
+//airfoilFile = {"../../test/Circle/Circle3200.txt"};
 
 // Максимальное количество уровней дерева
 numOfLevelsAirfoil = 18;
@@ -30,19 +37,28 @@ numOfLevelsAirfoil = 18;
 
 // Circle:		2pi/n
 // wing128:     0.032     
-eps = 0.00134035;	
+// wing1000:    0.0042
+//eps = 0.031415;
+
+
+eps = 0.0063;	
+//eps = 0.0005;
+
+//eps = 0.0031;	
+//eps = 0.0016;
 
 // Набегающий поток
-velInf = { 0.8660254037844386, -0.5 };
+velInf = { 1.0, 0.0 };
 
 // Длина мультипольных/локальных разложений:
-order = 8;
+order = 18;
 
 // Параметр точности 
-theta = 1.0;
+theta = 1.52;
+//theta = 0.00000000001;
 
 // Число повторных запусков
-runs = 3;
+runs = 5;
 
 // Число ядер, используемых при обходе дерева (0 = все имеющиеся)
 coresForTree = 0;
