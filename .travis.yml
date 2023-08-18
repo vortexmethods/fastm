@@ -18,7 +18,7 @@ addons:
  
 # Build your code e.g. by calling make
 script:
-  - cd BH 
+  - cd BHgpu 
   - cd doc  
 #  - touch .nojekyll 
   - doxygen Doxyfile 2>&1 | tee doxygen.log
@@ -31,7 +31,7 @@ script:
 deploy:
   provider: pages
   skip_cleanup: true
-  local-dir: BH/doc/html
+  local-dir: BHgpu/doc/html
   github_token: $GITHUB_TOKEN # Set in travis-ci.org dashboard
   on:
     branch: main

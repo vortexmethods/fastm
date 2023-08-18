@@ -1,6 +1,6 @@
 /*--------------------------------*- BHgpu -*----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.4    |
-| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/03/28     |
+| #####   ##  ##                |                            | Version 1.5    |
+| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/08/29     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.4
-\date 28 марта 2023 г.
+\version 1.5
+\date 29 августа 2023 г.
 */
 
 #ifndef CUSORT_H_
@@ -43,17 +43,10 @@
 
 namespace BHcu
 {
-
     void RadixSortFromCUB(        
         const int* MmortonCodesKeyUnsortd, int* MmortonCodesKeyd, \
         const int* MmortonCodesIdxUnsortd, int* MmortonCodesIdxd,
         int num_items, int begin_bit, int end_bit);
-
-    //(d_temp_storage, temp_storage_bytes, \
-    //    MmortonCodesKeyUnsortd, MmortonCodesKeyd, \
-    //    MmortonCodesIdxUnsortd, MmortonCodesIdxd, \
-    //      nbodiesd, 0, 2 * codeLength);
-
 }
 
 #endif

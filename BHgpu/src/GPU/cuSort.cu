@@ -1,6 +1,6 @@
 /*--------------------------------*- BHgpu -*----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.4    |
-| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/03/28     |
+| #####   ##  ##                |                            | Version 1.5    |
+| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/08/29     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.4
-\date 24 марта 2023 г.
+\version 1.5
+\date 29 августа 2023 г.
 */
 
 #include "cuSort.cuh"

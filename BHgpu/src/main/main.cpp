@@ -1,6 +1,6 @@
 /*--------------------------------*- BHgpu -*----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.4    |
-| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/03/28     |
+| #####   ##  ##                |                            | Version 1.5    |
+| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/08/29     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
@@ -71,8 +71,8 @@
  \author Марчевский Илья Константинович
  \author Рятина Евгения Павловна
  \author Колганова Александра Олеговна
- \version 1.4
- \date 28 марта 2023 г.
+ \version 1.5
+ \date 29 августа 2023 г.
  */
 
 #include <algorithm>
@@ -84,8 +84,6 @@
 #include <vector>
 
 #include "omp.h"
-
-//#define NUMVECTORwithoutARRAY
 
 #include "cuKernels.cuh"
 #include "Logo.h"
@@ -103,6 +101,7 @@ const real IDPI = (real)0.15915494309189534;
 void setBinom(std::vector<int>& cft);
 
 //Контроль правильности построения дерева
+/*
     void traverseT(int v, int* TEMPchild)
     {
         int v0 = TEMPchild[2*v+0];
@@ -113,42 +112,35 @@ void setBinom(std::vector<int>& cft);
             traverseT(v1, TEMPchild);    
     } 
 
+	
+	//for (int i = 0; i < nbodies - 1; ++i)
+	//	traverse(i, Mchildh.data(), nbodies);
+	//std::cout << "Tree is correct!" << std::endl;
+*/
+
 
 int main(int argc, char** argv)
 {
 	/// ПРОКОММЕНТИРОВАННАЯ ЧАСТЬ
 	//без буквы "l" на конце - на host,
-	//c буквой "l" на конце - на device
+	//c буквой "l" на конце - на device	
+	std::vector<realVortex> vtx;    //вихри из файла
+	realVortex* vtxl;
 
-	std::vector<real> gam;          //циркуляции из файла
-	real* gaml;
-	
-	std::vector<realPoint> pos;     //положения из файла
-	realPoint* posl;
-	
-	std::vector<int> mass;          //массы (единица для точечного вихря, число вихрей для ячейки) //todo зачем они на хосте?
-	int* massl;
-	
+	int* massl;	//массы (единица для точечного вихря, число вихрей для ячейки) //todo зачем они на хосте?	
 	
 	std::vector<realPoint> vel;     //для вычисляемых скоростей
 	realPoint* vell;                // - быстрым методом
 	realPoint* vellBS;              // - прямым методом Био--Савара
 
 	std::vector<int> cft;           //биномиальные коэффициенты
-	int* cftl;
-
+	
 	realPoint* maxrl, *minrl;       //габаритный прямоугольник
 	
-	real* momsl;                    //мультипольные моменты всех ячеек; хранятся в виде <mom_0, mom_1x, mom_1y, ..., mom_px, mom_py>, <для второй ячейки> ...
-
-	int* childl;                    //номера ячеек-потомков (хранятся парами)
+	realPoint* momsl;               //мультипольные моменты всех ячеек; хранятся в виде <mom_0x, mom_0y=0 mom_1x, mom_1y, ..., mom_px, mom_py>, <для второй ячейки> ...
 
 	//Число мультипроцессоров, заполняется функцией  setBlocks(blocks)
 	int blocks;
-
-	//техническая
-	std::vector<int> error(1);
-	int* errl;
 
 	//Число ячеек дерева и тел
 	int nnodes, nbodies;
@@ -161,51 +153,36 @@ int main(int argc, char** argv)
 	float timing[7], mintiming[7] = { 1e+10, 1e+10, 1e+10, 1e+10, 1e+10, 1e+10, 1e+10 }, avtiming[7]{};
 	double runtime, minruntime = 1e+10, avruntime = 0;
 
-
-	/// НИЖЕ пока еще не прокомментирвоанная часть
-	
 	
 	PrintLogoToStream(std::cout);
 		
 	//Проверка функционирования видеокарты
 	CudaSelect(dev);
-	setBlocks(blocks); //"достает" число блоков, равное числу мультипроцессоров (blocks - по ссылке)
-	
-
-	   
-	
+	setBlocks(blocks); //"достает" число блоков, равное числу мультипроцессоров (blocks - по ссылке)		
     
 	//Массивы исходных данных и результата на host
+	//Указатели на массивы, хранящиеся на device
 
-
-    //Указатели на массивы, хранящиеся на device
-	int * sortl, * countl, * startl;
-	
 	//For Morton tree
 	int* MmortonCodesKeyUnsortl;
-	int* MmortonCodesIdxUnsortl;	
 	int* MmortonCodesKeyl;
+
+	int* MmortonCodesIdxUnsortl; //0 1 2 3 ... nbodies-1		
 	int* MmortonCodesIdxl;
 
 	int* MlevelUnsortl;
 	int* MlevelSortl;
-	int* MindexUnsortl;
+
+	int* MindexUnsortl;  //0 1 2 3 ... nbodies-2
 	int* MindexSortl;
+	int* MindexSortTl;
 
-	realPoint* Mposl;
-	realPoint* Msizel;
-	int* Mparentl;
-	intPair* Mchildl;
-	intPair* Mrangel;
 
-	int* Mflagl;
-	int* Mmassl;	
-	int* Mlockl;
-	real* Mmoml;
-	real* Mgaml;
-
-	
-
+	realPoint* Mposl;  //Положения внутренних узлов в дерева Карраса
+	realPoint* Msizel; //Размеры внутренних ячеек
+	int* Mparentl;     //Номер ячейки-родителя
+	intPair* Mchildl;  //Потомки внутренних ячеек
+	intPair* Mrangel;  //Диапазон частиц во внутренней ячейке
 
 	// generate input
 	std::ifstream infile;
@@ -220,9 +197,6 @@ int main(int argc, char** argv)
 	nnodes--;
 
 	try {
-		mass.resize(nbodies);
-		gam.resize(nbodies);
-		pos.resize(nbodies);
 		vel.resize(nbodies);
 
 		cft.resize(order * (order + 1));
@@ -233,16 +207,10 @@ int main(int argc, char** argv)
 		fprintf(stderr, "cannot allocate host memory\n");  exit(-1);
 	}
 
-	std::vector<realVortex> vtx(nbodies);
+	vtx.resize(nbodies);
 
 	for (int i = 0; i < nbodies; i++) {
-
 		infile >> vtx[i].r()[0] >> vtx[i].r()[1] >> vtx[i].g();
-		pos[i] = vtx[i].r();	
-		mass[i] = 1;
-		gam[i] = vtx[i].g();
-
-		vel[i].toZero();	
 	}
 
     //////////////////////////// 
@@ -260,59 +228,65 @@ int main(int argc, char** argv)
 
 		// allocate memory
 		if (run == 0) {
-			cftl = (int*)cudaNew(order * (order + 1), sizeof(int));
-			errl = (int*)cudaNew(1, sizeof(int));
-			childl = (int*)cudaNew((nnodes + 1) * 4, sizeof(int));
-			massl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			gaml = (real*)cudaNew(nnodes + 1, sizeof(real));
+			unsigned long long int mem = 0;
+						
+			massl = (int*)cudaNew(nbodies - 1, sizeof(int));
+				mem += (nbodies - 1) * sizeof(int);
 
-			momsl = (real*)cudaNew((nnodes + 1) * (order * 2 - 1), sizeof(real));
-			posl = (realPoint*)cudaNew(nnodes + 1, sizeof(realPoint));
-			vell = (realPoint*)cudaNew(nnodes + 1, sizeof(realPoint));
-			vellBS = (realPoint*)cudaNew(nnodes + 1, sizeof(realPoint));
+			vtxl = (realVortex*)cudaNew(nbodies, sizeof(realVortex));
+				mem += nbodies * sizeof(realVortex);
 
-			countl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			startl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			sortl = (int*)cudaNew(nnodes + 1, sizeof(int));
+			momsl = (realPoint*)cudaNew((nbodies-1) * order, sizeof(realPoint));
+				mem += (nbodies - 1) * order * sizeof(realPoint);
+
+			
+
+			vell = (realPoint*)cudaNew(nbodies, sizeof(realPoint));
+				mem += nbodies * sizeof(realPoint);
+
+			vellBS = (realPoint*)cudaNew(nbodies, sizeof(realPoint));
+				mem += nbodies * sizeof(realPoint);
 
 			maxrl = (realPoint*)cudaNew(blocks * FACTOR1, sizeof(realPoint));
 			minrl = (realPoint*)cudaNew(blocks * FACTOR1, sizeof(realPoint));
+				mem += 2 * blocks * FACTOR1 * sizeof(realPoint);
 
 			///For MortonTree
-			MmortonCodesKeyUnsortl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			MmortonCodesIdxUnsortl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			MmortonCodesKeyl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			MmortonCodesIdxl = (int*)cudaNew(nnodes + 1, sizeof(int));
+			MmortonCodesKeyUnsortl = (int*)cudaNew(nbodies, sizeof(int));
+			MmortonCodesKeyl = (int*)cudaNew(nbodies, sizeof(int));
+			MmortonCodesIdxUnsortl = (int*)cudaNew(nbodies, sizeof(int));			
+			MmortonCodesIdxl = (int*)cudaNew(nbodies, sizeof(int));
+				mem += 4 * nbodies * sizeof(int);
 
-			Mposl = (realPoint*)cudaNew(nnodes + 1, sizeof(realPoint));
-			Msizel = (realPoint*)cudaNew(nnodes + 1, sizeof(realPoint));
-			Mparentl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			Mchildl = (intPair*)cudaNew(nnodes + 1, sizeof(intPair));
-			Mrangel = (intPair*)cudaNew(nnodes + 1, sizeof(intPair));
+			Mposl = (realPoint*)cudaNew(nbodies - 1, sizeof(realPoint));
+			Msizel = (realPoint*)cudaNew(nbodies - 1, sizeof(realPoint));
+				mem += 2 * (nbodies - 1) * sizeof(realPoint);
 
-			Mflagl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			Mmassl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			Mlockl = (int*)cudaNew(nnodes + 1, 2 * sizeof(int));
-			Mmoml = (real*)cudaNew((nnodes + 1), (2 * order - 1) * sizeof(real));
-			Mgaml = (real*)cudaNew((nnodes + 1), sizeof(real));
+			Mparentl = (int*)cudaNew(nnodes, sizeof(int));
+				mem += nnodes * sizeof(int);
 
-			MlevelUnsortl = (int*)cudaNew(nnodes + 1, sizeof(int));
-			MlevelSortl = (int*)cudaNew(nnodes + 1, sizeof(int));;
-			MindexUnsortl = (int*)cudaNew(nnodes + 1, sizeof(int));;
-			MindexSortl = (int*)cudaNew(nnodes + 1, sizeof(int));;
+			Mchildl = (intPair*)cudaNew(nbodies-1, sizeof(intPair));
+				mem += (nbodies - 1) * sizeof(intPair);
 
-			//MMchildl = (int*)cudaNew((nnodes + 1) * 2, sizeof(int));
+			Mrangel = (intPair*)cudaNew(nnodes, sizeof(intPair)); //Нужно ли для всех?
+				mem += nnodes * sizeof(intPair);
 
+			MlevelUnsortl = (int*)cudaNew(nbodies - 1, sizeof(int));
+			MlevelSortl = (int*)cudaNew(nbodies - 1, sizeof(int));
+			MindexUnsortl = (int*)cudaNew(nbodies - 1, sizeof(int));
+			MindexSortl = (int*)cudaNew(nbodies - 1, sizeof(int));
+			MindexSortTl = (int*)cudaNew(nbodies - 1, sizeof(int));
+				mem += 5 * (nbodies - 1) * sizeof(int);
+
+				printf("Total allocated memory: %llu bytes = %llu Mbytes\n", mem, mem >> 20);
 		}
 
 		if (run == 0)
 		{
-			cudaCopyVecToDevice(mass.data(), massl, nbodies, sizeof(int));
-			cudaCopyVecToDevice(gam.data(), gaml, nbodies, sizeof(real));
-			cudaCopyVecToDevice(pos.data(), posl, nbodies, sizeof(realPoint));
-			cudaCopyVecToDevice(vel.data(), vell, nbodies, sizeof(realPoint));
-			cudaCopyVecToDevice(vel.data(), vellBS, nbodies, sizeof(realPoint));
-			cudaCopyVecToDevice(cft.data(), cftl, (order * order), sizeof(int));
+			cudaCopyVecToDevice(vtx.data(), vtxl, nbodies, sizeof(realVortex));
+			//cudaCopyVecToDevice(vel.data(), vell, nbodies, sizeof(realPoint));
+			//cudaCopyVecToDevice(vel.data(), vellBS, nbodies, sizeof(realPoint));
+			setBinomCftConst(cft.data());
 		}
 
 		// run timesteps (launch GPU kernels)
@@ -321,9 +295,18 @@ int main(int argc, char** argv)
 		starttime = omp_get_wtime();
 
 
-		timing[0] += cuInitializationKernel(errl);
+		timing[0] += cuInitializationKernel();
 	
-		timing[1] += McuBoundingBoxKernel(nbodies, posl, Mposl, maxrl, minrl);
+		/// \brief Построение габаритного прямоугольника
+		/// 
+		/// \param[in] nbodies количество вихрей
+		/// \param[in] vtxl указатель на массив на device, где хранятся вихри
+		/// \param[out] Mposl указатель на массив на device, куда записываются координаты центров внутренних ячеек, заполняется только нулевая ячейка(корень)
+		/// \param[out] maxrl указатель на пару чисел на device, куда записываются координаты правого верхнего угла габаритного прямоугольника
+		/// \param[out] minrl указатель на пару чисел на device, куда записываются координаты левого нижнего угла габаритного прямоугольника
+		/// 
+		/// \return время исполнения
+		timing[1] += McuBoundingBoxKernel(nbodies, vtxl, Mposl, maxrl, minrl);
 
 		//realPoint maxrh, minrh;
 		//cudaCopyVecFromDevice(maxrl, &maxrh, 2, sizeof(real));
@@ -332,173 +315,100 @@ int main(int argc, char** argv)
 		//std::cout << "x : " << minrh[0] << "..." << maxrh[0] << "\n";
 		//std::cout << "y : " << minrh[1] << "..." << maxrh[1] << "\n";
 
-		auto ttt1 = McuMortonCodesKernel(nbodies, posl, MmortonCodesKeyUnsortl, MmortonCodesIdxUnsortl, MmortonCodesKeyl, MmortonCodesIdxl, Mrangel);
+		/// \brief Вычисление кодов Мортона
+		/// 
+		/// \param[in] nbodies количество вихрей
+		/// \param[in] vtxl указатель на массив на device, где хранятся вихри
+		/// \param[out] MmortonCodesKeyUnsortl указатель на массив на device, куда записываются несортированные коды Мортона (в том же порядке, что и вихри в массиве vtxl)
+		/// \param[out] MmortonCodesIdxUnsortl указатель на массив на device, куда записываются числа по порядку от 0 до nbodies-1
+		/// \param[out] MmortonCodesKeyl указатель на массив на device, куда записываются отсортированные по возрастанию коды Мортона (в порядке обхода Z-кривой)
+		/// \param[out] MmortonCodesIdxl указатель на массив на device, куда записываются правила перестановки кодов Мортона (получается "синхронной" сортировкой MmortonCodesKeyl) 
+		/// \param[out] Mrangel указатель на массив на device, куда записываются диапазоны частиц (по индексам в отсортированном массиве MmortonCodesKeyl), содержащихся во внутренних ячейках (заполняется только для корня)
+		/// 
+		/// \return время исполнения
+		auto ttt1 = McuMortonCodesKernel(nbodies, vtxl, MmortonCodesKeyUnsortl, MmortonCodesIdxUnsortl, MmortonCodesKeyl, MmortonCodesIdxl, Mrangel);
 		timing[2] += ttt1;
+//		std::cout << "McuMortonCodesKernel = " << ttt1 << std::endl;
 
-		//std::cout << "McuMortonCodesKernel = " << ttt1 << std::endl;
-
-		//int mcd[2];
-		//cudaCopyVecFromDevice(MmortonCodesKeyUnsortl + 0, mcd, 1, sizeof(int));
-		//cudaCopyVecFromDevice(MmortonCodesKeyl + 0, mcd+1, 1, sizeof(int));
-		//std::cout << mcd[0] << " " << mcd[1] << std::endl;		
-
+		/// \brief Определение топологии Мортоновского дерева 
+		/// 
+		/// \param[in] nbodies количество вихрей
+		/// \param[in] MmortonCodesKeyl указатель на массив на device, куда записываются отсортированные по возрастанию коды Мортона (в порядке обхода Z-кривой)
+		/// \param[out] Mparentl указатель на массив на device, куда записываются индексы родителей ячеек 
+		/// \param[out] Mchildl указатель на массив на device, куда записываются пары индексов ячеек потомков 
+		/// \param[out] Mrangel указатель на массив на device, куда записываются диапазоны частиц (по индексам в отсортированном массиве MmortonCodesKeyl), содержащихся во внутренних ячейках 
+		/// 
+		/// \return время исполнения
 		auto ttt2 = McuMortonInternalNodesKernel(nbodies, MmortonCodesKeyl, Mparentl, Mchildl, Mrangel);
 		timing[2] += ttt2;
+//		std::cout << "McuMortonInternalNodesKernel = " << ttt2 << std::endl;
 
-		//std::cout << "McuMortonInternalNodesKernel = " << ttt2 << std::endl;
-
-		//std::vector<int> range(2*nbodies);
-		//cudaCopyVecFromDevice(Mrangel, range.data(), 2*nbodies, sizeof(int));
-		//std::ofstream parentFile("range.txt");
-		//for (int i = 0; i < nbodies; ++i)
-		//	parentFile << i << " " << range[2*i] << " " << range[2 * i + 1] << "\n";
-		//parentFile.close();
-
-		auto ttt3 = McuMortonInternalCellsGeometryKernel(nbodies, MmortonCodesKeyl, Mposl, Msizel, Mrangel,
-			MlevelUnsortl, MlevelSortl, MindexUnsortl, MindexSortl);
+		/// \brief Определение геометрических параметров внутренних ячеек Мортоновского дерева 
+		/// 
+		/// \param[in] nbodies количество вихрей
+		/// \param[in] nnodes размер условного массива, хранящего все дерево (не менее, чем 2*nbodies)
+		/// \param[in] MmortonCodesKeyl указатель на массив на device, куда записываются отсортированные по возрастанию коды Мортона (в порядке обхода Z-кривой)
+		/// \param[out] Mposl указатель на массив на device, куда записываются координаты центров внутренних ячеек
+		/// \param[out] Msizel указатель на массив на device, куда записываются пары чисел - размеры внутренних ячеек по горизонтали и вертикали
+		/// \param[in] Mrangel указатель на массив на device, где хранятся диапазоны частиц (по индексам в отсортированном массиве MmortonCodesKeyl), содержащихся во внутренних ячейках 
+		/// \param[out] MlevelUnsortl указатель на массив на device, куда записываются уровни внутренних ячеек мортоновского дерева
+		/// \param[out] MlevelSortl указатель на массив на device, куда записываются отсортированные уровни внутренних ячеек мортоновского дерева
+		/// \param[out] MindexUnsortl указатель на массив на device, куда записываются числа по порядку от 0 до nbodies-2
+		/// \param[out] MindexSortl указатель на массив на device, куда записываются правила перестановки MlevelSortl (получается "синхронной" сортировкой MlevelSortl) 
+		/// \param[out] MindexSortTl указатель на массив на device, куда записываются правила обратной перестановки MlevelSortl
+		/// 
+		/// \return время исполнения
+		auto ttt3 = McuMortonInternalCellsGeometryKernel(nbodies, nnodes, MmortonCodesKeyl, Mposl, Msizel, Mrangel, MlevelUnsortl, MlevelSortl, MindexUnsortl, MindexSortl, MindexSortTl);
 		timing[2] += ttt3;
-
-		//std::cout << "McuMortonInternalCellsGeometryKernel = " << ttt3 << std::endl;
-
-		//std::vector<real> positions(2*nbodies);
-		//std::vector<real> sizes(2*nbodies);
-		//cudaCopyVecFromDevice(Mposl, positions.data(), 2*nbodies, sizeof(real));
-		//cudaCopyVecFromDevice(Msizel, sizes.data(), 2*nbodies, sizeof(real));
-		//std::ofstream parentFile2("pos.txt");
-		//for (int i = 0; i < nbodies; ++i)
-		//	parentFile2 << i << " " << positions[2*i] << " " << positions[2 * i + 1] << " " << sizes[2 * i] << " " << sizes[2 * i + 1] << "\n";
-		//parentFile2.close();
-
-
-		std::vector<int> MmortonCodesIdxSortedh(nnodes + 1);
-		cudaCopyVecFromDevice(MmortonCodesIdxl, MmortonCodesIdxSortedh.data(), nbodies, sizeof(int));
-
-		std::vector<real> TEMPgamh(nnodes+1);
-
-		for (int i = 0; i < nbodies; ++i)
-			TEMPgamh[i] = gam[MmortonCodesIdxSortedh[i]];
-		real* TEMPgaml;
-		TEMPgaml = (real*)cudaNew(nnodes + 1, sizeof(real));
-		cudaCopyVecToDevice(TEMPgamh.data(), TEMPgaml, nbodies, sizeof(real));
-				
-		timing[2] += cuClearKernel23(nnodes, nbodies, startl, massl, TEMPgaml, momsl);
-
-		// Later - to GPU
-		std::vector<int> MlevelSorth(nbodies - 1), MindexSorth(nbodies - 1);
-		std::vector<int> MlevelUnsorth(nbodies - 1), MindexUnsorth(nbodies - 1);
-
-		cudaCopyVecFromDevice(MlevelSortl, MlevelSorth.data(), nbodies - 1, sizeof(int));
-		cudaCopyVecFromDevice(MindexSortl, MindexSorth.data(), nbodies - 1, sizeof(int));
-
-		cudaCopyVecFromDevice(MlevelUnsortl, MlevelUnsorth.data(), nbodies - 1, sizeof(int));
-		cudaCopyVecFromDevice(MindexUnsortl, MindexUnsorth.data(), nbodies - 1, sizeof(int));
-
-		std::vector<int> Mchildh((nbodies + 1) * 2);
-		cudaCopyVecFromDevice(Mchildl, Mchildh.data(), (nbodies + 1) * 2, sizeof(int));
-
-		std::vector<realPoint> positions(nbodies - 1);
-		cudaCopyVecFromDevice(Mposl, positions.data(), 2 * (nbodies - 1), sizeof(real));
-
-		//childl  ->  (nnodes+1)*4;
-		//posl    ->  (nnodes+1);
-
-		std::vector<int> MindexSorthT(nbodies - 1);
-		for (int i = 0; i < MindexSorth.size(); ++i)
-			MindexSorthT[MindexSorth[i]] = i;
-
-		std::vector<int> TEMPchildh((nnodes + 1) * 2, -1);
-		std::vector<realPoint> TEMPposh((nnodes + 1));
-		std::vector<int> TMPmass((nbodies + 1), 1);
-
-		/*
-		for (int i = 0; i < nbodies - 1; ++i)
-			traverse(i, Mchildh.data(), nbodies);
-
-		std::cout << "Tree is correct!" << std::endl;
-		*/		
+//		std::cout << "McuMortonInternalCellsGeometryKernel = " << ttt3 << std::endl;
 		
-		for (int i = 0; i < nbodies; ++i)
-		{
-			TEMPposh[i] = pos[MmortonCodesIdxSortedh[i]];
-			/*
-			{
-				if (MmortonCodesIdxSortedh[i] == 0)
-					std::cout << "proobraz(0) = " << i << std::endl;
-				
-				if (MmortonCodesIdxSortedh[i] == 1)
-					std::cout << "proobraz(1) = " << i << std::endl;
-			}
-			*/
-		}
+		/// \brief Обнуление необходимых параметров 
+		/// 
+		/// \param[in] nnodes размер условного массива, хранящего все дерево (не менее, чем 2*nbodies)
+		/// \param[in] nbodies количество вихрей
+		/// \param[out] massl указатель на массив на device, где присваиваются -1 внутренним узлам и 1 вихрям  
+		/// \param[out] momsl указатель на массив на device, где обнуляются мультипольные моменты всех ячеек
+		/// 
+		/// \return время исполнения
+		auto ttt4 = cuClearKernel2(nnodes, nbodies, massl, momsl);
+		timing[3] += ttt4;
+//		std::cout << "McuCleearKernel23 = " << ttt4 << std::endl;
 
-		for (int i = 0; i < nbodies - 1; ++i)
-		{
-			TEMPposh[nnodes - i] = positions[MindexSorth[i]];
-
-			if (Mchildh[2 * MindexSorth[i] + 0] >= nbodies)
-				TEMPchildh[2 * (nnodes - i) + 0] = Mchildh[2 * MindexSorth[i] + 0] - nbodies;
-			else
-				TEMPchildh[2 * (nnodes - i) + 0] = (nnodes + 1) - 1 - MindexSorthT[Mchildh[2 * MindexSorth[i] + 0]];
-
-			if (Mchildh[2 * MindexSorth[i] + 1] >= nbodies)
-				TEMPchildh[2 * (nnodes - i) + 1] = Mchildh[2 * MindexSorth[i] + 1] - nbodies;
-			else
-				TEMPchildh[2 * (nnodes - i) + 1] = (nnodes + 1) - 1 - MindexSorthT[Mchildh[2 * MindexSorth[i] + 1]];
-		}
-
-
-		std::vector<realPoint> sizes(nbodies - 1, {0, 0});
-		cudaCopyVecFromDevice(Msizel, sizes.data(), 2 * (nbodies - 1), sizeof(real));
-
-		std::vector<realPoint> TEMPsizesh(nnodes+1, {0, 0});
-
-		for (int i = 0; i < nbodies - 1; ++i)
-		{
-			TEMPsizesh[nnodes - i] = sizes[MindexSorth[i]];
-		}
-
-
-		/*
-		for (int i = nnodes; i > nnodes - (nbodies - 1); --i)
-			traverseT(i, TEMPchildh.data());
-
-		std::cout << "TreeT is correct!" << std::endl;
-		*/
-
-		int* TEMPchildl;
-		TEMPchildl = (int*)cudaNew(2 * (nnodes + 1), sizeof(int));
-		cudaCopyVecToDevice(TEMPchildh.data(), TEMPchildl, (nnodes + 1) * 2, sizeof(int));
-
-		realPoint* TEMPposl;
-		TEMPposl = (realPoint*)cudaNew(2 * (nnodes + 1), sizeof(realPoint));
-		cudaCopyVecToDevice(TEMPposh.data(), TEMPposl, (nnodes + 1) * 2, sizeof(real));
-
-		realPoint* TEMPsizel;
-		TEMPsizel = (realPoint*)cudaNew(2 * (nnodes + 1), sizeof(realPoint));
-		cudaCopyVecToDevice(TEMPsizesh.data(), TEMPsizel, (nnodes + 1) * 2, sizeof(real));
-
-
-		/// то, что выше ==> на видеокарту
-
-
-		timing[3] += cuSummarizationKernel2(nnodes, nbodies, countl, TEMPchildl, massl, momsl, TEMPposl, cftl);
-
-
-		timing[4] += cuSortKernel2(nnodes, nbodies, sortl, countl, startl, TEMPchildl);
+		/// \brief Вычисление мультипольных моментов 
+		/// 
+		/// \param[in] nnodes размер условного массива, хранящего все дерево (не менее, чем 2*nbodies)
+		/// \param[in] nbodies количество вихрей
+		/// \param[in] Mchildl указатель на массив на device, куда записываются пары индексов ячеек потомков 
+		/// \param[out] massl указатель на массив на device, где присваиваются массы (единица для точечного вихря, число вихрей для ячейки)
+		/// \param[out] momsl указатель на массив на device, куда записываются мультипольные моменты всех ячеек
+		/// \param[in] vtxl указатель на массив на device, где хранятся вихри
+		/// \param[in] MmortonCodesIdxl указатель на массив на device, где хранятся правила перестановки кодов Мортона 
+		/// \param[in] Mposl указатель на массив на device, где хранятся координаты центров внутренних ячеек
+		/// \param[in] MindexSortl указатель на массив на device, где хранятся правила перестановки массива уровней дерева (MlevelSortl)
+		/// \param[in] MindexSortTl указатель на массив на device, где хранятся правила обратной перестановки массива уровней дерева (MlevelSortl)
+		/// 
+		/// \return время исполнения
+		timing[4] += cuSummarizationKernel2(nnodes, nbodies, Mchildl, massl, momsl, vtxl, MmortonCodesIdxl, Mposl, MindexSortl, MindexSortTl);
 		
-
-		timing[5] += cuForceCalculationKernel2(nnodes, nbodies, errl, itolsq, epssq, sortl, TEMPchildl, momsl, TEMPposl, vell, TEMPsizel);
-		
-		
-		std::vector<realPoint> TEMPvelh(nbodies);
-		
-		cudaCopyVecFromDevice(vell, TEMPvelh.data(), nbodies, sizeof(realPoint));
-
-	
-
-		for (int i = 0; i < nbodies; ++i)		
-			vel[MmortonCodesIdxSortedh[i]] = TEMPvelh[i] * IDPI;
-       
+		/// \brief Вычисление скоростей
+		/// 
+		/// \param[in] nnodes размер условного массива, хранящего все дерево (не менее, чем 2*nbodies)
+		/// \param[in] nbodies количество вихрей
+		/// \param[in] itolsq параметр близости
+		/// \param[in] epssq радиус вихря
+		/// \param[in] Mchildl указатель на массив на device, где хранятся пары индексов ячеек потомков 
+		/// \param[in] momsl указатель на массив на device, где хранятся мультипольные моменты всех ячеек
+		/// \param[in] vtxl указатель на массив на device, где хранятся вихри
+		/// \param[in] MmortonCodesIdxl указатель на массив на device, где хранятся правила перестановки кодов Мортона 
+		/// \param[in] Mposl указатель на массив на device, где хранятся координаты центров внутренних ячеек
+		/// \param[in] MindexSortl указатель на массив на device, где хранятся правила перестановки массива уровней дерева (MlevelSortl)
+		/// \param[in] MindexSortTl указатель на массив на device, где хранятся правила обратной перестановки массива уровней дерева (MlevelSortl)
+		/// \param[out] vell указатель на массив на device, куда записываются скорости вихрей
+		/// \param[in] Msizel указатель на массив на device, где хранятся пары чисел - размеры внутренних ячеек по горизонтали и вертикали
+		/// 
+		/// \return время исполнения
+		timing[5] += cuForceCalculationKernel2(nnodes, nbodies, itolsq, epssq, Mchildl, momsl, vtxl, MmortonCodesIdxl, Mposl, MindexSortl, MindexSortTl, vell, Msizel);
+				       
         endtime = omp_get_wtime();	
 		runtime = endtime - starttime;
 		if (minruntime > runtime)
@@ -514,8 +424,15 @@ int main(int argc, char** argv)
 			avtiming[i] += timing[i];
 		}
 
-		PrintStatistics(run, runs, error[0], timing, mintiming, avtiming, runtime, minruntime, avruntime);
+		PrintStatistics(run, runs, timing, mintiming, avtiming, runtime, minruntime, avruntime);
     }
+
+	if (compare || save)
+	{
+		cudaCopyVecFromDevice(vell, vel.data(), nbodies, sizeof(realPoint));
+		for (int i = 0; i < nbodies; ++i)
+			vel[i] *= IDPI;
+	}
 
 	if (compare)
 	{
@@ -535,7 +452,7 @@ int main(int argc, char** argv)
 
 		if (!realBSfromFile)
 		{
-			float tBS = cuForceDirectCalculationKernel(nnodes, nbodies, errl, itolsq, epssq, sortl, childl, momsl, posl, vellBS); //cuForceDirectCalculationKernel(nnodes, nbodies, errl, itolsq, epssq, sortl, childl, moml, posl, veld);
+			float tBS = cuForceDirectCalculationKernel(nnodes, nbodies, epssq, vtxl, vellBS); 
 			std::cout << "done!" << std::endl;
 			std::cout << "Time (Biot-Savart): " << tBS << " ms" << std::endl;
 
@@ -563,8 +480,13 @@ int main(int argc, char** argv)
 		for (int i = 0; i < nbodies; i++) 
 		{
 			err += (vel[i] - veloBS[i]).length<real>();
-			absVel += veloBS[i].length<real>();
+			absVel = std::max(absVel, veloBS[i].length<real>());
+			//err += (vel[i] - veloBS[i]).length2();
 		}
+		err /= nbodies;
+
+		//err = sqrt(err)/nbodies;
+		//absVel = 1.0;
 		
 		PrintAccuracyError(err / absVel);
 
@@ -582,19 +504,12 @@ int main(int argc, char** argv)
 	}
 	std::cout << "Goodbye! " << std::endl;
     
-    cudaDelete(errl);
-	cudaDelete(childl);
-
-	cudaDelete(massl);
-	cudaDelete(posl);
+ 	cudaDelete(massl);
+	cudaDelete(vtxl);
 	cudaDelete(vell);
 	cudaDelete(vellBS);
     cudaDelete(momsl);
    
-	cudaDelete(countl);
-	cudaDelete(startl);
-	cudaDelete(sortl);
-
 	cudaDelete(maxrl);
 	cudaDelete(minrl);
 
@@ -609,12 +524,6 @@ int main(int argc, char** argv)
 	cudaDelete(Mparentl);
 	cudaDelete(Mchildl);
 	cudaDelete(Mrangel);
-
-	cudaDelete(Mflagl);
-	cudaDelete(Mmassl);
-	cudaDelete(Mlockl);
-	cudaDelete(Mmoml);
-	cudaDelete(Mgaml);
 
 	cudaDelete(MlevelUnsortl);
 	cudaDelete(MlevelSortl);

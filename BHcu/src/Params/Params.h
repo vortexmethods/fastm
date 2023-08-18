@@ -46,12 +46,12 @@ namespace BHcu
 	/// Радиус вихревого элемента
 #define EPS 1e-4
 /// Параметр точности 
-#define THETA 0.62
+#define THETA 1.00
 
-	static const int order = 8;   //1-MONOPOLE
+	static const int order = 11;   //1-MONOPOLE
 	
 	// Имя файла с задачей
-	static const std::string nameFile = "../../test/test2000000.txt";
+	static const std::string nameFile = "../../test/Wake/wake2m.txt";
 	// Название задачи для файла с результатом
 	static const std::string task = "2m";
 

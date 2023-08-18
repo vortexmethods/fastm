@@ -31,8 +31,8 @@ project(BHgpu LANGUAGES CXX CUDA)
 
 enable_language(CUDA)
 #set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wno-deprecated-gpu-targets -gencode arch=compute_35,code=sm_35 -gencode arch=compute_37,code=sm_37 -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_53,code=sm_53 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_62,code=sm_62 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_72,code=sm_72 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80")
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_52,code=sm_52 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75  -gencode arch=compute_80,code=sm_80")
-#set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_61,code=sm_61")
+#set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_52,code=sm_52 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75  -gencode arch=compute_80,code=sm_80")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_70,code=sm_70")
 
 set(CMAKE_CONFIGURATION_TYPE "Debug;Release")
 
@@ -80,7 +80,7 @@ if (OPENMP_FOUND)
 endif()
 
 #CUDA
-target_compile_options(BHcu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+target_compile_options(BHgpu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
 #                       --generate-line-info
                        --use_fast_math
 #                       --relocatable-device-code=true

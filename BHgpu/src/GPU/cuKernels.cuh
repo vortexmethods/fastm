@@ -1,6 +1,6 @@
 /*--------------------------------*- BHgpu -*----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.4    |
-| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/03/28     |
+| #####   ##  ##                |                            | Version 1.5    |
+| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/08/29     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.4
-\date 28 марта 2023 г.
+\version 1.5
+\date 29 августа 2023 г.
 */
 
 #ifndef CUKERNELS_CUH_
@@ -48,11 +48,11 @@
 #include <vector>
 
 #include "Point2D.h"
+#include "Vortex2D.h"
 
 #define THREADS1 32
 #define THREADS2 512
-#define THREADS3 64
-
+#define THREADS3 32
 #if __CUDA_ARCH__ >= 800
 #define THREADS4 352
 #else
@@ -62,17 +62,20 @@
 #if __CUDA_ARCH__ >= 800
 #define THREADS5 1024
 #else
-#define THREADS5 512
+#define THREADS5 1024
 #endif
 
 #define FACTOR1 6
 #define FACTOR2 2
 #define FACTOR3 4
 #define FACTOR4 4
-#define FACTOR5 2
+#define FACTOR5 1
 
 namespace BHcu
 {
+
+    void setBinomCftConst(int* cft);
+    
     void CudaSelect(int dev);
     
     void setBlocks(int& blocks_);
@@ -94,26 +97,17 @@ namespace BHcu
     /*** initialize memory ********************************************************/
     /******************************************************************************/
 
-    float cuInitializationKernel(int* __restrict errd);
+    float cuInitializationKernel();
 
 
     /******************************************************************************/
     /*** compute center and radius ************************************************/
     /******************************************************************************/
 
-    float cuBoundingBoxKernel(
-        int nnodesd, int nbodiesd,
-        volatile int* __restrict startd, volatile int* __restrict childd,
-        volatile int* __restrict massd,
-        volatile real * __restrict momsd,
-        volatile realPoint* __restrict posd,
-        volatile realPoint* __restrict maxrd, volatile realPoint* __restrict minrd);
-
-
 	float McuBoundingBoxKernel(
 		int nbodiesd,
-		volatile realPoint* __restrict posd,
-		volatile realPoint* __restrict Mposd,
+		const realVortex* __restrict vtxd,
+		realPoint* __restrict Mposd,
 		volatile realPoint* __restrict maxrd, volatile realPoint* __restrict minrd);
 
 	/******************************************************************************/
@@ -122,7 +116,7 @@ namespace BHcu
 
 	float McuMortonCodesKernel(
         int nbodiesd,
-        realPoint* __restrict posd,
+        realVortex* __restrict vtxd,
         int* __restrict MmortonCodesKeyUnsortd, int* __restrict MmortonCodesIdxUnsortd,
         int* __restrict MmortonCodesKeyd, int* __restrict MmortonCodesIdxd,
         intPair* __restrict Mranged);
@@ -145,67 +139,59 @@ namespace BHcu
     /******************************************************************************/
     float McuMortonInternalCellsGeometryKernel(
         int nbodiesd,
+        int nnodesd,
         int* __restrict MmortonCodesKeyd,
         realPoint* __restrict Mposd,
         realPoint* __restrict Msized,
         intPair* __restrict Mranged,
-        int* __restrict MlevelUnsortd, 
-        int* __restrict MlevelSortd, 
-        int* __restrict MindexUnsortd, 
-        int* __restrict MindexSortd
+        int* __restrict MlevelUnsortd,
+        int* __restrict MlevelSortd,
+        int* __restrict MindexUnsortd,
+        int* __restrict MindexSortd,
+        int* __restrict MindexSortTd
     );
+   
+
 
     /******************************************************************************/
     /*** build tree ***************************************************************/
     /******************************************************************************/
-    float cuClearKernel23(
+    float cuClearKernel2(
         int nnodesd, int nbodiesd,
-        volatile int* __restrict startd,
-        volatile int* __restrict massd,
-        const real* __restrict gamd,
-        volatile real* __restrict momsd);
+        volatile int* __restrict massd,                
+        volatile realPoint* __restrict momsd);
 
     /******************************************************************************/
     /*** compute center of mass ***************************************************/
     /******************************************************************************/
     float cuSummarizationKernel2(
         const int nnodesd, const int nbodiesd,
-        volatile int* __restrict countd, const int* __restrict childd,
+        const intPair* __restrict Mchildd,
         volatile int* __restrict massd,
-        volatile real* __restrict momsd,
-        volatile realPoint* __restrict posd,
-        const int* __restrict cftl);
-    /******************************************************************************/
-    /*** sort bodies **************************************************************/
-    /******************************************************************************/
-    float cuSortKernel2(
-        int nnodesd, int nbodiesd,
-        volatile int* __restrict sortd, const int* __restrict countd,
-        volatile int* __restrict startd, volatile int* __restrict childd);
+        volatile realPoint* __restrict momsd,
+        const realVortex* __restrict vtxd, const int* __restrict MmortonCodesIdxd,
+        const realPoint* __restrict Mposd, const int* __restrict MindexSortd, const int* __restrict MindexSortTd);
 
     /******************************************************************************/
     /*** compute force ************************************************************/
     /******************************************************************************/
     float cuForceCalculationKernel2(
         int nnodesd, int nbodiesd,
-        int* __restrict errd,
         real itolsqd, real epssqd,
-        const int* __restrict sortd, const int* __restrict childd,
-        const real* __restrict momsd,
-        const realPoint* __restrict posd,
+        const intPair* __restrict Mchildd,
+        const realPoint* __restrict momsd,
+        const realVortex* __restrict vtxd, const int* __restrict MmortonCodesIdxd,
+        const realPoint* __restrict Mposd, const int* __restrict MindexSortd, const int* __restrict MindexSortTd,
         volatile realPoint* __restrict veld,
-        volatile realPoint* __restrict Msized);
+        const realPoint* __restrict Msized);
 
     /******************************************************************************/
     /*** compute force (direct) ***************************************************/
     /******************************************************************************/
     float cuForceDirectCalculationKernel(
-        int nnodesd, int nbodiesd,
-        int* __restrict errd,
-        real itolsqd, real epssqd,
-        const int* __restrict sortd, const int* __restrict childd,
-        const real * __restrict momsd,
-        const realPoint* __restrict posd,
+        const int nnodesd, const int nbodiesd,
+        const real epssqd,
+        const realVortex* __restrict vtxd,        
         volatile realPoint* __restrict veld);
 }//namespace BHcu
 

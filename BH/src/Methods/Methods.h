@@ -117,100 +117,8 @@ namespace BH
 #endif
 	}
 
+	
 
-	void SolM(double* AX, double* newlast, const double* rhs, const double* last, const std::vector<PointsCopy>& pnt)
-	{
-		int n = (int)pnt.size();
-
-		std::vector<double> alpha(n), beta(n), gamma(n), delta(n), phi(n), xi(n), psi(n);
-		double yn, ynn;
-		double lam1, lam2, mu1, mu2, xi1, xi2;
-		double a;
-
-		alpha[1] = (pnt[0].tau & pnt[0].c) * pnt[0].len * 2.0;
-		beta[1] = -(pnt[n - 1].tau & pnt[0].a) * pnt[0].len * 2.0; ///почему тут минус?
-		gamma[1] = 2.0 * pnt[0].len;
-		delta[1] = -2.0 * pnt[0].len * rhs[0];
-		double zn;
-		ADDOP(11);
-
-		for (int i = 1; i < n - 1; ++i)
-		{
-			a = (pnt[i].tau & pnt[i].a);
-			zn = a * alpha[i] - 0.5 / pnt[i].len;
-			alpha[i + 1] = -(pnt[i].tau & pnt[i].c) / zn;
-			beta[i + 1] = -a * beta[i] / zn;
-			gamma[i + 1] = -(1.0 + a * gamma[i]) / zn;
-			delta[i + 1] = (rhs[i] - a * delta[i]) / zn;
-			ADDOP(12);
-		}
-
-
-		a = pnt[n - 2].tau & pnt[n - 2].a;
-		zn = alpha[n - 2] * a - 0.5 / pnt[n - 2].len;
-		phi[n - 1] = -((pnt[n - 2].tau & pnt[n - 2].c) + beta[n - 2] * a) / zn;
-		psi[n - 1] = -(1.0 + gamma[n - 2] * a) / zn;
-		xi[n - 1] = (rhs[n - 2] - delta[n - 2] * a) / zn;
-		ADDOP(12);
-
-		for (int i = n - 2; i > 0; --i)
-		{
-			phi[i] = alpha[i] * phi[i + 1] + beta[i];
-			psi[i] = alpha[i] * psi[i + 1] + gamma[i];
-			xi[i] = alpha[i] * xi[i + 1] + delta[i];
-			ADDOP(3);
-		}
-		double e = (pnt[n - 1].tau & pnt[n - 1].c);
-		a = (pnt[n - 1].tau & pnt[n - 1].a);
-		lam1 = e * phi[1] + a * phi[n - 1] - 0.5 / pnt[n - 1].len;
-		mu1 = e * psi[1] + a * psi[n - 1] + 1.0;
-		xi1 = rhs[n - 1] - e * xi[1] - a * xi[n - 1];
-		lam2 = mu2 = xi2 = 0.0;
-		ADDOP(11);
-
-		for (int j = 0; j < n - 1; ++j)
-		{
-			lam2 += phi[j + 1];
-			mu2 += psi[j + 1];
-			xi2 -= xi[j + 1];
-		}
-		lam2 += 1.0;
-
-/*
-#ifndef linScheme
-		xi2 += rhs[n];
-#else
-		xi2 += rhs[2 * n];
-#endif
-*/
-		xi2 += *last;
-
-		zn = lam1 * mu2 - lam2 * mu1;
-		yn = (xi1 * mu2 - xi2 * mu1) / zn;
-		ynn = -(xi1 * lam2 - xi2 * lam1) / zn;
-		ADDOP(8);
-
-/*
-#ifndef linScheme
-		AX[n] = ynn;
-#else
-		AX[2 * n] = ynn;
-#endif
-*/
-		*newlast = ynn;
-
-		AX[n - 1] = yn;
-		for (int i = n - 2; i >= 0; --i)
-		{
-			AX[i] = phi[i + 1] * yn + psi[i + 1] * ynn + xi[i + 1];
-			ADDOP(2);
-		}
-
-		//Циклическая прогонка для линейной схемы
-#ifdef linScheme 
-		SolCircleRun(AX, rhs, pnt);
-#endif 
-	}
 
 
 #ifdef CALCSHEET
@@ -280,7 +188,7 @@ namespace BH
 
 		std::vector<std::vector<std::vector<Point2D>>> AX(prm.airfoilFile.size());
 
-		int nAX = prm.airfoilFile.size();
+		int nAX = (int)prm.airfoilFile.size();
 		for (int k = 0; k < nAX; ++k)
 		{
 			AX[k].resize(nAX);
@@ -319,24 +227,9 @@ namespace BH
 		for (int i = 0; i < prm.airfoilFile.size(); ++i)
 			V[0].push_back(0); /// суммарная гамма
 
-		double tPrecondStart = omp_get_wtime();
-
-		//SolM(V[0], V[0], BH.pointsCopyPan[0]);
-
-		int cntr = 0;
-		for (int p = 0; p < prm.airfoilFile.size(); ++p)
-		{
-			SolM(V[0].data() + cntr, &(V[0][totalVsize + p]), V[0].data() + cntr, &(V[0][totalVsize + p]), BH.pointsCopyPan[p]);
-			cntr += n[p];
-#ifdef linScheme
-			cntr += n[p];
-#endif
-		}
+		//// PRECONDITIONER
 
 
-		double tPrecondFinish = omp_get_wtime();
-
-		timing3 += tPrecondFinish - tPrecondStart;
 
 		beta = norm(V[0]);
 		V[0] = (1.0 / beta) * V[0];
@@ -403,22 +296,8 @@ namespace BH
 
 
 
+			////PRECONDITIONER
 
-			double tPrecondStart = omp_get_wtime();
-			//SolM(w, w, BH.pointsCopyPan[0]);
-
-			cntr = 0;
-			for (int p = 0; p < prm.airfoilFile.size(); ++p)
-			{
-				SolM(w.data() + cntr, &(w[totalVsize + p]), w.data() + cntr, &(w[totalVsize + p]), BH.pointsCopyPan[p]);
-				cntr += n[p];
-#ifdef linScheme
-				cntr += n[p];
-#endif
-			}
-
-			double tPrecondFinish = omp_get_wtime();
-			timing3 += tPrecondFinish - tPrecondStart;
 
 
 			H.resize(j + 2);
@@ -491,7 +370,7 @@ namespace BH
 		}
 		// end of Solve HY=g
 
-		cntr = 0;
+		int cntr = 0;
 		for (int p = 0; p < n.size(); p++) {
 #ifndef linScheme			
 			for (int i = 0; i < n[p]; i++)

@@ -1,6 +1,6 @@
 /*--------------------------------*- BHgpu -*----------------*---------------*\
-| #####   ##  ##                |                            | Version 1.4    |
-| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/03/28     |
+| #####   ##  ##                |                            | Version 1.5    |
+| ##  ##  ##  ##   ####  ##  ## |  BHgpu: Barnes-Hut method  | 2023/08/29     |
 | #####   ######  ##     ##  ## |  for 2D vortex particles   *----------------*
 | ##  ##  ##  ##  ##     ##  ## |  Open Source Code                           |
 | #####   ##  ##   ####   ####  |  https://www.github.com/vortexmethods/fastm |
@@ -32,8 +32,8 @@
 \author Марчевский Илья Константинович
 \author Рятина Евгения Павловна
 \author Колганова Александра Олеговна
-\version 1.4
-\date 28 марта 2023 г.
+\version 1.5
+\date 29 августа 2023 г.
 */
 
 #ifndef PARAMS_H_
@@ -46,9 +46,27 @@ namespace BHcu
 	/// Радиус вихревого элемента
 #define EPS 1e-4
 /// Параметр точности 
-#define THETA 1.41
 
-	static const int order = 6;   //1-MONOPOLE
+//eps = 10^{-3}
+//#define THETA 1.66 //for 12 
+//#define THETA 2.37 //for 11  <<--optimal
+//#define THETA 1.47 //for 10
+
+//eps = 10^{-5}
+//#define THETA 1.66 //for 12 
+//#define THETA 1.58 //for 11  <<--optimal
+//#define THETA 1.47 //for 10
+
+//eps = 10^{-7}
+//#define THETA 1.41 //for 16
+//#define THETA 1.37 //for 15
+#define THETA 1.31 //for 14
+//#define THETA 1.23 //for 13
+//#define THETA 1.14 //for 12
+//#define THETA 1.04 //for 11  <<--optimal
+//#define THETA 0.93 //for 10
+
+	static const int order = 14;   //1-MONOPOLE
 	
 	// Имя файла с задачей
 	static const std::string nameFile = "../../test/Wake/wake2m.txt";
@@ -68,9 +86,9 @@ namespace BHcu
 	static const int runs = 10;
 
 	//Тип данных 
-#define CALCinFLOAT
+#define CALCinDOUBLE
 
-//Печатать ли полную информацию о device
+	//Печатать ли полную информацию о device
 	static const bool printFullCUDAinfo = false;
 
 
@@ -82,6 +100,8 @@ namespace BHcu
 #ifdef CALCinFLOAT
 #define real float
 #define real2 float2
+#define real3 float3
+#define make_real2(x,y) make_float2(x,y)
 #define realmax fmaxf
 #define realmin fminf
 #define realPoint Point2Df
@@ -92,6 +112,8 @@ namespace BHcu
 #ifdef CALCinDOUBLE
 #define real double
 #define real2 double2
+#define real3 double3
+#define make_real2(x,y) make_double2(x,y)
 #define realmax max
 #define realmin min
 #define realPoint Point2D

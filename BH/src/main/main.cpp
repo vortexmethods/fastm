@@ -590,7 +590,7 @@ void SolveLinearSystem(const params& prm)
 	for (size_t p = 0; p < prm.airfoilFile.size(); ++p)
 	{		
 		ReadPanels(prm.airfoilFile[p], wakeAirfoil[p], dataAirfoil[p], shifts[p]);
-		n[p] = wakeAirfoil[p].size();
+		n[p] = (int)wakeAirfoil[p].size();
 	}
 
 
@@ -647,7 +647,7 @@ void SolveLinearSystem(const params& prm)
 
 		// Расчет влияния вихревого следа и набегающего потока на правую часть
 		for (size_t p = 0; p < prm.airfoilFile.size(); ++p)
-			BH.RhsComputation(velo[p], timing[2], timing[3], p);
+			BH.RhsComputation(velo[p], timing[2], timing[3], (int)p);
 
 		for (int p = 0; p < prm.airfoilFile.size(); ++p) {
 			for (int i = 0; i < n[p]; ++i)
